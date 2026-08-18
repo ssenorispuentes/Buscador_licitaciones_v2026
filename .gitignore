@@ -4,7 +4,7 @@ cambios_licitaciones_favoritas/
 prueba.csv
 *pdf
 *.pyc
-.idea/workspace.xml
+.idea/
 venv/
 
 __pycache__/
@@ -12,3 +12,4 @@ __pycache__/
 *.pyo
 *.log
 /logs
+.~lock.*#
