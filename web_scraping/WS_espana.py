@@ -113,7 +113,7 @@ class ScraperEspana:
 
     def extraer_detalle(self, enlace):
         detalle = {}
-        wait = WebDriverWait(self.driver, 20)
+        wait = WebDriverWait(self.driver, 10)
 
         try:
             # 👉 Abrir nueva pestaña con el enlace de detalle
@@ -185,7 +185,9 @@ class ScraperEspana:
                 print("❌ No se encontró fila con 'pliego' en la primera tabla, buscando en la segunda...")
 
                 try:
-                    wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "a.TextAlignCenter.celdaTam2")))
+                    WebDriverWait(self.driver, 3).until(
+                        EC.presence_of_element_located((By.CSS_SELECTOR, "a.TextAlignCenter.celdaTam2"))
+                    )
                     enlace_pdf = self.driver.find_element(By.CSS_SELECTOR, "a.TextAlignCenter.celdaTam2")
                     pdf_url = enlace_pdf.get_attribute("href")
                     if pdf_url:
@@ -282,8 +284,26 @@ class ScraperEspana:
 
     def siguiente_pagina(self):
         try:
-            siguiente = self.wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@type='submit' and @value='Siguiente']")))
+            primer_resultado = (
+                "//tr[.//a[contains(@href, 'detalle_licitacion')]][1]"
+                "//a[contains(@href, 'detalle_licitacion')]"
+            )
+            enlace_actual = self.driver.find_element(
+                By.XPATH, primer_resultado
+            ).get_attribute("href")
+            siguiente = self.wait.until(EC.element_to_be_clickable((
+                By.XPATH,
+                "//input[@type='submit' and "
+                "(contains(@value, 'Siguiente') or contains(@value, 'Next'))]",
+            )))
             self.driver.execute_script("arguments[0].click();", siguiente)
+            self.wait.until(
+                lambda driver: driver.find_element(
+                    By.XPATH, primer_resultado
+                ).get_attribute("href") != enlace_actual
+            )
+            # El portal reemplaza las filas por AJAX de forma gradual. El primer
+            # enlace cambia antes de que el resto de la tabla haya terminado.
             time.sleep(3)
             return True
         except TimeoutException:
@@ -344,6 +364,13 @@ class ScraperEspana:
         try:
             datos = self.scraping()
             df = pd.DataFrame(datos)
+            # El listado se actualiza por AJAX y, excepcionalmente, puede repetir
+            # la última fila de una página como primera de la siguiente.
+            if "enlace" in df.columns:
+                duplicadas = df.duplicated(subset="enlace").sum()
+                if duplicadas:
+                    print(f"🟡 Se eliminan {duplicadas} licitaciones duplicadas")
+                    df = df.drop_duplicates(subset="enlace", keep="first")
             # Limpia columna descripcion y define columna numero_expediente
             df = self.define_expediente(df)
             # Limpieza de nombres de columnas
