@@ -14,7 +14,7 @@ import sys
 def main(fecha_proceso = None, usar_scraping = True):
     # 🕒 Inicio de ejecución y redirección de salida
     start_time = time.time()
-    log_filename = f"logs/ejecucion_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.txt"
+    log_filename = f"logs/ejecucion_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.txt"
     os.makedirs("logs", exist_ok=True)
 
     original_stdout = sys.stdout  # Guarda la salida original
@@ -48,25 +48,39 @@ def main(fecha_proceso = None, usar_scraping = True):
             df_and = df_esp = df_eus = df_mad = None
             # Ejecutar scrapers
             print("🟢 Ejecutando scraper Andalucía...")
-            df_and = ScraperAndalucia(fecha = fecha_ejecucion,
-                                    fecha_minima=fecha_minima,
-                                    config_file = config_path).ejecutar()
-            print("✅ Scraper Andalucía completado!")
+            try:
+                df_and = ScraperAndalucia(fecha=fecha_ejecucion,
+                                          fecha_minima=fecha_minima,
+                                          config_file=config_path).ejecutar()
+                print("✅ Scraper Andalucía completado!")
+            except Exception as e:
+                print(f"⚠️ Error en scraper Andalucía: {e}")
 
             print("🟢 Ejecutando scraper Estado...")
-            df_esp = ScraperEspana(fecha = fecha_ejecucion,
-                                config_file = config_path).ejecutar()
-            print("✅ Scraper España completado!")
+            try:
+                df_esp = ScraperEspana(fecha=fecha_ejecucion,
+                                       config_file=config_path).ejecutar()
+                print("✅ Scraper España completado!")
+            except Exception as e:
+                print(f"⚠️ Error en scraper Estado: {e}")
+
             print("🟢 Ejecutando scraper Euskadi...")
-            df_eus = ScraperEuskadi(fecha = fecha_ejecucion,
-                                    fecha_minima=fecha_minima,
-                                    config_file = config_path).ejecutar()
-            print("✅ Scraper Euskadi completado!")
+            try:
+                df_eus = ScraperEuskadi(fecha=fecha_ejecucion,
+                                        fecha_minima=fecha_minima,
+                                        config_file=config_path).ejecutar()
+                print("✅ Scraper Euskadi completado!")
+            except Exception as e:
+                print(f"⚠️ Error en scraper Euskadi: {e}")
+
             print("🟢 Ejecutando scraper Madrid...")
-            df_mad = ScraperMadrid(fecha = fecha_ejecucion,
-                                config_file = config_path,
-                                fecha_minima = fecha_minima).ejecutar()
-            print("✅ Scraper Madrid completado!")
+            try:
+                df_mad = ScraperMadrid(fecha=fecha_ejecucion,
+                                       config_file=config_path,
+                                       fecha_minima=fecha_minima).ejecutar()
+                print("✅ Scraper Madrid completado!")
+            except Exception as e:
+                print(f"⚠️ Error en scraper Madrid: {e}")
         else:
             print(f"🟢 Leyendo ficheros de licitaciones...")
             # 🟠 Leer datos desde CSVs en carpeta de datos
@@ -147,8 +161,9 @@ def main(fecha_proceso = None, usar_scraping = True):
             # df_unificado = functions.combinar_duplicados_por_expediente(df_unificado, col_exp = 'numero_expediente')
             print(f"✅ Unificación completada. Total registros: {df_unificado.shape[0]}")
         else:
-            df_unificado = pd.DataFrame()
-            print("⚠️ No hay DataFrames para unificar. El DataFrame unificado está vacío.")
+            raise RuntimeError(
+                "No se obtuvo ninguna licitación; se conserva el CSV anterior."
+            )
 
         # Inicializar el clasificador de tecnología
         print("🟢 Clasificación de texto...")
@@ -193,7 +208,5 @@ if __name__ == "__main__":
 #python main_scraping.py                  No hace scraping, lee ficheros con fecha más actualizada
 #python main_scraping.py 2024-06-01       No hace scraping, lee ficheros con fecha la que se le pasa
 #python main_scraping.py --usar_scraping  Hace scraping
-
-
 
 

@@ -65,6 +65,14 @@ class ScraperEspana:
     def configurar_filtros(self):
         self.driver.get(self.url)
 
+        # La URL directa del formulario dejó de ser estable. Desde 2026 hay que
+        # entrar por la página de buscadores y abrir el formulario de licitaciones.
+        abrir_formulario = self.wait.until(EC.element_to_be_clickable((
+            By.ID,
+            "viewns_Z7_AVEQAI930OBRD02JPMTPG21004_:form1:linkFormularioBusqueda",
+        )))
+        self.driver.execute_script("arguments[0].click();", abrir_formulario)
+
         Select(self.wait.until(EC.presence_of_element_located(
             (By.NAME, "viewns_Z7_AVEQAI930OBRD02JPMTPG21004_:form1:menu1MAQ1")
         ))).select_by_value(self.filters.get("pais", "ES"))
@@ -94,7 +102,10 @@ class ScraperEspana:
             )).select_by_value(self.filters["forma_presentacion"])
 
 
-        buscar = self.wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@type='submit' and @value='Buscar']")))
+        buscar = self.wait.until(EC.element_to_be_clickable((
+            By.NAME,
+            "viewns_Z7_AVEQAI930OBRD02JPMTPG21004_:form1:button1Arriba",
+        )))
         self.driver.execute_script("arguments[0].click();", buscar)
 
         time.sleep(10)
@@ -220,11 +231,14 @@ class ScraperEspana:
 
     def extraer_pagina(self):
         licitaciones = []
-        rows = self.driver.find_elements(By.XPATH, "//tr[contains(@class, 'rowClass')]")
+        rows = self.driver.find_elements(
+            By.XPATH,
+            "//tr[.//a[contains(@href, 'detalle_licitacion')]]",
+        )
 
-        for i in range(0, len(rows), 2):
+        for row in rows:
             try:
-                row1 = rows[i].find_elements(By.TAG_NAME, "td")
+                row1 = row.find_elements(By.TAG_NAME, "td")
                 enlace = row1[0].find_element(By.XPATH, ".//a[contains(@href, 'detalle_licitacion')]").get_attribute("href")
 
                 base = {
@@ -351,4 +365,3 @@ class ScraperEspana:
             return df
         finally:
             self.driver.quit()
-
