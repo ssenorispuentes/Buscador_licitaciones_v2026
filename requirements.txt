@@ -1,11 +1,4 @@
-beautifulsoup4==4.13.4
-gensim==4.3.3
-nltk==3.9.1
 pandas==2.3.0
-PyMuPDF==1.26.1
-requests==2.32.4
-selenium==4.34.0
-spacy==3.7.4
 streamlit==1.46.0
 unidecode==1.4.0
-webdriver-manager==4.0.2
+numpy==1.26.4

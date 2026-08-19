@@ -1,0 +1,9 @@
+-r requirements.txt
+beautifulsoup4==4.13.4
+gensim==4.3.3
+nltk==3.9.1
+PyMuPDF==1.26.1
+requests==2.32.4
+selenium==4.34.0
+spacy==3.7.4
+webdriver-manager==4.0.2
