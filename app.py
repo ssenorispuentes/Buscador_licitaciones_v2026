@@ -130,21 +130,23 @@ def aplicar_estilos():
         [data-testid="stMetric"] { background:white; border:1px solid #e4e9f0;
           border-radius:14px; padding:1rem 1.15rem; box-shadow:0 4px 18px rgba(22,34,51,.05); }
         [data-testid="stSidebar"] { background:#fff; border-right:1px solid #e4e9f0; }
-        .run-banner { display:flex; justify-content:space-between; align-items:center;
-          padding:.85rem 1rem; border-radius:12px; color:#14324a;
+        .run-banner { display:inline-flex; align-items:center; gap:.45rem;
+          padding:.65rem .9rem; border-radius:10px; color:#14324a;
           background:linear-gradient(90deg,#e8f4ff,#effaf6); border:1px solid #cfe2ef;
-          margin:.5rem 0 1.2rem 0; }
+          margin:.5rem 0 .65rem 0; }
+        .tender-count { color:#14324a; font-size:1.15rem; font-weight:650;
+          margin:0 0 1.1rem 0; }
         .eyebrow { color:#44708f; font-size:.78rem; font-weight:700; letter-spacing:.08em; }
         </style>
     """, unsafe_allow_html=True)
 
 
 def main():
-    st.set_page_config(page_title="Observatorio de Licitaciones", page_icon="📊",
+    st.set_page_config(page_title="Buscador de Licitaciones", page_icon="🔎",
                        layout="wide", initial_sidebar_state="expanded")
     aplicar_estilos()
     st.markdown('<div class="eyebrow">CONTRATACIÓN PÚBLICA · ESPAÑA</div>', unsafe_allow_html=True)
-    st.title("Observatorio de licitaciones")
+    st.title("Buscador de Licitaciones")
     st.caption("Búsqueda, clasificación tecnológica y seguimiento de oportunidades públicas.")
 
     output_dir = cargar_config()
@@ -163,18 +165,19 @@ def main():
                                errors="coerce", utc=True).dropna()
     run_text = (run_dates.max().tz_convert("Europe/Madrid").strftime("%d/%m/%Y · %H:%M:%S")
                 if not run_dates.empty else "No disponible")
-    st.markdown(f'<div class="run-banner"><strong>Último scraping</strong><span>🕒 {run_text}</span></div>',
+    st.markdown(f'<div class="run-banner"><strong>Fecha de ejecución del scraping:</strong><span>{run_text}</span></div>',
+                unsafe_allow_html=True)
+    st.markdown(f'<div class="tender-count">{len(df):,} licitaciones encontradas</div>',
                 unsafe_allow_html=True)
 
     analytics = cargar_analytics()
     latest = analytics.iloc[-1] if not analytics.empty else None
     pdf_values = df.get("PDF / Ruta", pd.Series("", index=df.index)).fillna("").astype(str).str.lower()
     pdf_present = ~pdf_values.isin({"", "nan", "none", "notfound", "no disponible"})
-    metric_cols = st.columns(4)
-    metric_cols[0].metric("Licitaciones", int(latest["total_licitaciones"]) if latest is not None else len(df))
-    metric_cols[1].metric("Con PDF", int(latest["pdf_descargados"]) if latest is not None else int(pdf_present.sum()))
-    metric_cols[2].metric("Gemini requeridas", int(latest["gemini_requeridas"]) if latest is not None else "Sin métrica local")
-    metric_cols[3].metric("Gemini completadas", int(latest["gemini_analizadas"]) if latest is not None else "Sin métrica local")
+    metric_cols = st.columns(3)
+    metric_cols[0].metric("Con PDF", int(latest["pdf_descargados"]) if latest is not None else int(pdf_present.sum()))
+    metric_cols[1].metric("Gemini requeridas", int(latest["gemini_requeridas"]) if latest is not None else "Sin métrica local")
+    metric_cols[2].metric("Gemini completadas", int(latest["gemini_analizadas"]) if latest is not None else "Sin métrica local")
 
     st.sidebar.header("Filtros")
     expediente = st.sidebar.text_input("Número de expediente", placeholder="Ej. 2026/123")
