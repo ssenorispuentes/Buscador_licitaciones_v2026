@@ -42,7 +42,7 @@ descargado correctamente.
 7. Solo si es tecnológica y la web es insuficiente se extraen hasta 24.000
    caracteres del PDF con PyMuPDF y se hace una segunda petición para completar
    categoría y resumen.
-8. Finalmente, `construir_salida_final()` ordena y completa por nombre las 18
+8. Finalmente, `construir_salida_final()` ordena y completa por nombre las 20
    columnas de salida antes de guardar el CSV tabulado.
 
 Este diseño evita enviar todos los pliegos a Google y reduce tiempo, lecturas de

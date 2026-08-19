@@ -9,20 +9,25 @@ from src.functions import (
     FINAL_OUTPUT_COLUMNS,
     asegurar_identificador_en_pdfs,
     construir_salida_final,
+    normalizar_columnas_multilingues,
+    parsear_fechas_inteligente,
 )
 from src.gemini_processor import LicitacionGeminiProcessor
 from src.analytics import guardar_metricas
-from app import aplicar_filtros, normalizar_estado
+from src.document_keywords import matches_document_text
+from app import aplicar_filtros, formatear_importe_compacto, normalizar_estado
 
 
 class PipelineTests(unittest.TestCase):
-    def test_esquema_final_tiene_exactamente_18_columnas(self):
+    def test_esquema_final_tiene_exactamente_20_columnas(self):
         source = pd.DataFrame(
             [{
                 "estado_licitacion": "Publicada",
                 "fecha_limite_presentacion": "2026-09-01",
                 "titulo": "Plataforma de datos",
                 "numero_expediente": "EXP-1",
+                "codigo_cpv": "45216111",
+                "importe_con_iva": 1210,
                 "enlace": "https://example.test/exp-1",
                 "provincia_ejecucion": "Madrid",
                 "comunidad_autonoma_ejecucion": "Comunidad de Madrid",
@@ -30,7 +35,8 @@ class PipelineTests(unittest.TestCase):
         )
         result = construir_salida_final(source)
         self.assertEqual(result.columns.tolist(), FINAL_OUTPUT_COLUMNS)
-        self.assertEqual(result.shape[1], 18)
+        self.assertEqual(result.shape[1], 20)
+        self.assertEqual(result.columns[:2].tolist(), ["numero_expediente", "codigo_cpv"])
         self.assertEqual(result.loc[0, "enlace"], "https://example.test/exp-1")
         self.assertEqual(
             result.loc[0, "lugar_ejecucion"], "Madrid / Comunidad de Madrid"
@@ -111,6 +117,41 @@ class PipelineTests(unittest.TestCase):
         ])
         result = aplicar_filtros(source, estados=["En plazo", "Adjudicada"])
         self.assertEqual(result["Nº Expediente"].tolist(), ["A", "B"])
+
+    def test_aliases_multilingues_recuperan_cpv_iva_y_expediente(self):
+        source = pd.DataFrame([{
+            "File": "CON/45/25", "CPV code": "45216111",
+            "Total amount tax included": "2157129.84",
+            "Contracting Party": "Ayuntamiento",
+        }])
+        result = normalizar_columnas_multilingues(source)
+        self.assertEqual(result.loc[0, "numero_expediente"], "CON/45/25")
+        self.assertEqual(result.loc[0, "codigo_cpv"], "45216111")
+        self.assertEqual(result.loc[0, "importe_con_iva"], "2157129.84")
+
+    def test_salida_cpv_elimina_descripcion(self):
+        source = pd.DataFrame([{
+            "numero_expediente": "EXP", "codigo_cpv": "45216111-Trabajos de construcción",
+        }])
+        result = construir_salida_final(source)
+        self.assertEqual(result.loc[0, "codigo_cpv"], "45216111")
+
+    def test_fechas_inglesas_y_catalanas(self):
+        values = pd.Series(["08-Sep-2026", "September 8, 2026", "8 de setembre del 2026 23:59"])
+        result = parsear_fechas_inteligente(values)
+        self.assertTrue(all(value == date(2026, 9, 8) for value in result))
+
+    def test_formato_compacto_de_importes(self):
+        self.assertEqual(formatear_importe_compacto(1782751.93), "1,78 M €")
+        self.assertEqual(formatear_importe_compacto(45000), "45,0 K €")
+        self.assertEqual(formatear_importe_compacto(-1), "-")
+
+    def test_documentos_se_detectan_en_cuatro_idiomas(self):
+        for label in (
+            "Pliego de prescripciones técnicas", "Tender specifications",
+            "Veure documents - plec tècnic", "Baldintza teknikoak",
+        ):
+            self.assertTrue(matches_document_text(label), label)
 
     def test_metricas_se_guardan_en_json_e_historico(self):
         with tempfile.TemporaryDirectory() as directory:

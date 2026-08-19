@@ -9,13 +9,15 @@ from unidecode import unidecode
 
 
 FINAL_OUTPUT_COLUMNS = [
+    "numero_expediente",
+    "codigo_cpv",
     "estado_licitacion",
     "fecha_limite_presentacion",
     "resumen_breve",
     "importe_licitacion",
+    "importe_con_iva",
     "valor_estimado_contrato",
     "titulo",
-    "numero_expediente",
     "organo_contratacion",
     "tipo_contrato",
     "lugar_ejecucion",
@@ -28,6 +30,53 @@ FINAL_OUTPUT_COLUMNS = [
     "pdf",
     "fecha_proceso",
 ]
+
+FIELD_ALIASES = {
+    "numero_expediente": ["numero_de_expediente", "numero_expediente", "file", "expediente", "expedient_zenbakia", "codi_expedient", "codigo_expediente", "reference_number", "referencia"],
+    "codigo_cpv": ["codigo_cpv", "cpv_code", "clasificacion_cpv", "codi_cpv", "cpv_kodea", "cpv"],
+    "importe_licitacion": ["presupuesto_base_de_licitacion_sin_impuestos", "base_bidding_budget_without_taxes", "importe_de_licitacion_sin_iva", "presupuesto_del_contrato_sin_iva", "presupuesto_base_licitacion_sin_impuestos", "pressupost_base_de_licitacio_sense_impostos", "budget_without_tax", "importe"],
+    "importe_con_iva": ["presupuesto_base_de_licitacion_con_impuestos", "importe_de_licitacion_con_iva", "importe_con_iva", "presupuesto_base_licitacion_importe_total", "budget_with_taxes", "total_amount_tax_included", "pressupost_amb_iva", "iva_incluido"],
+    "valor_estimado_contrato": ["valor_estimado_del_contrato", "estimated_value_of_the_contract", "valor_estimado_sin_impuestos", "valor_estimado", "valor_estimat_del_contracte", "estimated_value"],
+    "titulo": ["titulo", "titulo_de_expediente", "subject_of_the_contract", "objeto_del_contrato", "objecte_del_contracte", "kontratuaren_xedea", "descripcion", "description"],
+    "organo_contratacion": ["organo_de_contratacion", "organo_contratacion", "contracting_party", "organ_de_contractacio", "botere_esleitzailea", "poder_adjudicador", "contracting_authority"],
+    "estado_licitacion": ["estado", "state_of_the_tender", "estado_licitacion", "estado_de_la_licitacion", "estado_de_la_tramitacion", "situacion", "estat_de_la_licitacio", "egoera", "status"],
+    "tipo_contrato": ["tipo_de_contrato", "tipo_contrato", "type_of_contract", "tipus_de_contracte", "kontratu_mota", "contract_type"],
+    "lugar_ejecucion": ["lugar_de_ejecucion", "place_of_execution", "lloc_dexecucio", "lloc_d_execucio", "gauzatze_lekua", "codigo_nuts"],
+    "procedimiento_contratacion": ["procedimiento_de_contratacion", "procedimiento", "procedimiento_de_adjudicacion", "procurement_procedure", "procediment_de_contractacio", "esleipen_prozedura"],
+    "forma_presentacion": ["metodo_de_presentacion_de_la_oferta", "metodo_de_presentacion_de_ofertas", "method_of_presenting_the_offer", "forma_de_presentacion", "ofertak_aurkezteko_modua"],
+    "fecha_limite_presentacion": ["fecha_fin_de_presentacion_de_oferta", "fecha_fin_de_presentacion", "fecha_limite", "fecha_limite_de_presentacion_de_ofertas", "fecha_y_hora_limite_de_presentacion_de_ofertas_o_solicitudes_de_participacion", "end_date_for_the_submission_of_offers", "fecha_limite_presentacion", "data_limit_de_presentacio", "eskaintzak_aurkezteko_azken_eguna", "submission_deadline"],
+    "financiacion_ue": ["financiacion_ue", "financiacion_de_la_union_europea", "financiado_por", "eu_financing", "financiacio_de_la_unio_europea", "ebko_finantzaketa"],
+    "sistema_contratacion": ["sistema_de_contratacion", "sistema_de_contractacio", "contracting_system", "sistema_de_racionalizacion"],
+    "enlace": ["enlace", "url", "enlace_detalle", "url_detail"],
+    "pdf": ["pdf", "pdf_pliego_prescripciones_tecnicas", "pdf_prescripciones_tecnicas"],
+}
+
+
+def normalizar_nombre_campo(name):
+    normalized = unidecode(str(name)).lower().strip()
+    return re.sub(r"[^a-z0-9]+", "_", normalized).strip("_")
+
+
+def normalizar_columnas_multilingues(df):
+    """Añade campos canónicos coalesciendo etiquetas equivalentes ES/EN/CA/EU."""
+    result = df.copy()
+    normalized_columns = {normalizar_nombre_campo(column): column for column in result.columns}
+    invalid = {"", "nan", "none", "notfound", "-1"}
+    for canonical, aliases in FIELD_ALIASES.items():
+        candidates = []
+        for alias in [canonical, *aliases]:
+            original = normalized_columns.get(normalizar_nombre_campo(alias))
+            if original is not None and original not in candidates:
+                candidates.append(original)
+        if not candidates:
+            continue
+        combined = pd.Series(None, index=result.index, dtype="object")
+        for candidate in candidates:
+            values = result[candidate]
+            valid = ~values.fillna("").astype(str).str.strip().str.lower().isin(invalid)
+            combined = combined.where(combined.notna(), values.where(valid))
+        result[canonical] = combined
+    return result
 
 def get_columns_dict(section):
     """
@@ -68,21 +117,30 @@ def parsear_fechas_inteligente(columna, fecha_fallback="2100-12-31"):
     meses = {
         "enero": "01", "febrero": "02", "marzo": "03", "abril": "04",
         "mayo": "05", "junio": "06", "julio": "07", "agosto": "08",
-        "septiembre": "09", "octubre": "10", "noviembre": "11", "diciembre": "12"
+        "septiembre": "09", "octubre": "10", "noviembre": "11", "diciembre": "12",
+        "january": "01", "jan": "01", "february": "02", "feb": "02", "march": "03", "mar": "03",
+        "april": "04", "apr": "04", "may": "05", "june": "06", "jun": "06", "july": "07", "jul": "07",
+        "august": "08", "aug": "08", "september": "09", "sep": "09", "october": "10", "oct": "10",
+        "november": "11", "nov": "11", "december": "12", "dec": "12",
+        "gener": "01", "febrer": "02", "marc": "03", "abril": "04", "maig": "05", "juny": "06",
+        "juliol": "07", "agost": "08", "setembre": "09", "octubre": "10", "novembre": "11", "desembre": "12",
     }
 
     def normalizar_fecha(valor):
         if pd.isna(valor):
             return pd.to_datetime(fecha_fallback).date()
 
-        valor = str(valor).strip().lower()
+        valor = unidecode(str(valor).strip().lower())
         valor = re.sub(r'\s+', ' ', valor)
+
+        for month, number in sorted(meses.items(), key=lambda item: len(item[0]), reverse=True):
+            valor = re.sub(rf"(?<!\w){re.escape(month)}(?!\w)", number, valor)
 
         # Detectar formato "26 de junio del 2025 23:59"
         match = re.match(r'(\d{1,2}) de (\w+) del (\d{4}) ?(\d{2}:\d{2})?', valor)
         if match:
             dia, mes, anio, hora = match.groups()
-            mes_num = meses.get(mes, "01")
+            mes_num = meses.get(mes, mes if mes.isdigit() else "01")
             hora = hora if hora else "00:00"
             fecha_str = f"{anio}-{mes_num}-{int(dia):02d} {hora}"
             try:
@@ -97,6 +155,9 @@ def parsear_fechas_inteligente(columna, fecha_fallback="2100-12-31"):
             "%d-%m-%Y",
             "%d/%m/%Y %H:%M",
             "%Y-%m-%d %H:%M:%S",
+            "%d-%m-%Y %H:%M",
+            "%m %d, %Y",
+            "%d-%m-%Y",
         ]
         for fmt in formatos:
             try:
@@ -232,6 +293,7 @@ def filtrar_renombrar_dataframe(df, comunidad, filename_codigo_nuts, columnas_fi
         DataFrame transformado y listo para análisis o exportación.
     """
 
+    df = normalizar_columnas_multilingues(df)
     # Invertir columnas_finales para buscar por índice
     index_to_final_name = {v: k for k, v in columnas_finales.items()}
     map_comunidad = {'and':'Andalucía','esp':'España','eus':'Euskadi','mad':'Comunidad de Madrid'}
@@ -252,6 +314,10 @@ def filtrar_renombrar_dataframe(df, comunidad, filename_codigo_nuts, columnas_fi
         print("⚠️ Hay columnas duplicadas antes del reindex:", df_filtrado.columns[df_filtrado.columns.duplicated()])
         df_filtrado = df_filtrado.loc[:, ~df_filtrado.columns.duplicated()]
     df_final = df_filtrado.reindex(columns=final_order)
+    for canonical in final_order:
+        if canonical in df.columns:
+            existing = df_final[canonical]
+            df_final[canonical] = existing.where(existing.notna(), df[canonical])
      # Formatear columna fecha fin presentacion
     # Intentar convertir formatos conocidos
     for  col in [col for col in df_final.columns if 'fecha' in col]:
@@ -338,7 +404,7 @@ def asegurar_identificador_en_pdfs(df, output_dir_pdf):
 
 
 def construir_salida_final(df):
-    """Construye por nombre el esquema contractual de 18 columnas.
+    """Construye por nombre el esquema contractual de 20 columnas.
 
     Esta función evita el antiguo desplazamiento causado por índices duplicados
     en los ficheros INI y falla de forma explícita si el orden se altera.
@@ -365,6 +431,7 @@ def construir_salida_final(df):
         "clasificacion": "No clasificada",
         "enlace": "No disponible",
         "pdf": "No disponible",
+        "codigo_cpv": "No disponible",
     }
     for column in FINAL_OUTPUT_COLUMNS:
         if column not in result.columns:
@@ -374,6 +441,10 @@ def construir_salida_final(df):
         lambda value: "No disponible"
         if str(value).strip().lower() in {"", "nan", "none", "notfound"}
         else os.path.basename(str(value).strip())
+    )
+    result["codigo_cpv"] = result["codigo_cpv"].apply(
+        lambda value: ", ".join(dict.fromkeys(re.findall(r"(?<!\d)\d{8}(?!\d)", str(value))))
+        or ("No disponible" if str(value).strip().lower() in {"", "nan", "none", "notfound"} else str(value).strip())
     )
 
     def normalize_funding(value):
@@ -393,7 +464,7 @@ def construir_salida_final(df):
 
     result = result.loc[:, FINAL_OUTPUT_COLUMNS].copy()
     if list(result.columns) != FINAL_OUTPUT_COLUMNS:
-        raise AssertionError("El esquema final no coincide con las 18 columnas requeridas")
+        raise AssertionError("El esquema final no coincide con las 20 columnas requeridas")
     return result
 
 def leer_fichero_licitaciones(input_dir, comunidad,sep = '\t', fecha_proceso=None):

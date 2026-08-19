@@ -12,10 +12,12 @@ import os
 import time
 import requests
 import hashlib
+from bs4 import BeautifulSoup
 from datetime import datetime
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from src.document_keywords import matches_document_text
 
 class ScraperEspana:
     def __init__(self, fecha, config_file="./config/scraper_config.ini", fecha_minima=None):
@@ -146,6 +148,24 @@ class ScraperEspana:
                     print(f"⚠️ Error extrayendo datos del bloque: {e}")
                     continue
 
+            # El portal moderno ya no usa siempre tipo3/outputText. Los IDs
+            # label_* y text_* se mantienen estables aunque cambie el idioma.
+            soup = BeautifulSoup(self.driver.page_source, "html.parser")
+            for label in soup.find_all("span", id=re.compile(r":label_")):
+                key = label.get("title") or label.get_text(" ", strip=True)
+                suffix = label.get("id", "").split(":label_", 1)[-1]
+                container = label.find_parent("div", class_=lambda value: value and "flex-inline" in value)
+                if not key or not container:
+                    continue
+                values = container.find_all(
+                    "span", id=re.compile(rf":text_{re.escape(suffix)}(?:_|$)")
+                )
+                if not values:
+                    continue
+                value = values[0].get("title") or values[0].get_text(" ", strip=True)
+                if value and key not in detalle:
+                    detalle[key] = value
+
             # 👉 Buscar fila con 'pliego' en tabla de documentos
             fila_pliego = None
             try:
@@ -155,7 +175,9 @@ class ScraperEspana:
                 for idx, fila in enumerate(filas):
                     texto = fila.text.lower()
                     print(f"🧾 Fila {idx}: {texto}")
-                    if "pliego" in texto:
+                    enlaces_fila = fila.find_elements(By.TAG_NAME, "a")
+                    hrefs = " ".join(link.get_attribute("href") or "" for link in enlaces_fila)
+                    if matches_document_text(f"{texto} {hrefs}"):
                         fila_pliego = fila
                         break
             except Exception as e:
@@ -183,7 +205,7 @@ class ScraperEspana:
                 except Exception as e:
                     print(f"⚠️ Error al descargar PDF de la primera tabla: {e}")
             else:
-                print("❌ No se encontró fila con 'pliego' en la primera tabla, buscando en la segunda...")
+                print("❌ No se encontró un documento reconocido en la primera tabla, buscando en la segunda...")
 
                 try:
                     WebDriverWait(self.driver, 7).until(

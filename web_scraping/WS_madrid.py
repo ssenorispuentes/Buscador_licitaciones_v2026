@@ -9,6 +9,8 @@ import configparser
 import os
 import re
 import unicodedata
+import hashlib
+from src.document_keywords import download_document, find_document_link
 
 class ScraperMadrid:
     def __init__(self, fecha, config_file="./config/scraper_config.ini", fecha_minima=None):
@@ -26,7 +28,9 @@ class ScraperMadrid:
 
         self.base_url = config.get(urls, "base_mad", fallback="https://contratos-publicos.comunidad.madrid")
         self.OUTPUT_DIR = config.get(paths, "output_dir", fallback="./datos")
+        self.OUTPUT_DIR_PDF = config.get(paths, "output_dir_pdf", fallback="./pdfs")
         os.makedirs(self.OUTPUT_DIR, exist_ok=True)
+        os.makedirs(self.OUTPUT_DIR_PDF, exist_ok=True)
 
         max_paginas_str = config.get(params, "max_paginas", fallback="1")
         self.MAX_PAGINAS = int(max_paginas_str) if max_paginas_str.lower() != "none" else None
@@ -79,6 +83,17 @@ class ScraperMadrid:
                             return None
 
                     detalle[campo_limpio] = content
+
+            document_url = find_document_link(soup, enlace)
+            if document_url:
+                identifier = hashlib.sha256(enlace.encode("utf-8")).hexdigest()[:12]
+                filename = f"mad_{identifier}_pliego_tecnico.pdf"
+                try:
+                    detalle["pdf_prescripciones_tecnicas"] = download_document(
+                        self.session, document_url, self.OUTPUT_DIR_PDF, filename, self.TIMEOUT
+                    )
+                except Exception as exc:
+                    print(f"⚠️ No se pudo descargar el pliego de Madrid: {exc}")
 
             return detalle
 

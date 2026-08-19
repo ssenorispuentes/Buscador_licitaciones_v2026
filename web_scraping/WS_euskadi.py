@@ -15,6 +15,9 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 from webdriver_manager.chrome import ChromeDriverManager
 import unicodedata
+import hashlib
+import requests
+from src.document_keywords import download_document, find_document_link
 
 class ScraperEuskadi:
     """
@@ -39,6 +42,7 @@ class ScraperEuskadi:
         params = "eus_params"
 
         self.OUTPUT_DIR = config.get(paths, "output_dir", fallback="./datos")
+        self.OUTPUT_DIR_PDF = config.get(paths, "output_dir_pdf", fallback="./pdfs")
         self.BASE = config.get(urls, "base_eus")
 
         if not self.BASE:
@@ -62,6 +66,7 @@ class ScraperEuskadi:
         )
         self.wait = WebDriverWait(self.driver, self.TIMEOUT)
         os.makedirs(self.OUTPUT_DIR, exist_ok=True)
+        os.makedirs(self.OUTPUT_DIR_PDF, exist_ok=True)
 
     def extraer_pagina(self):
         """
@@ -129,6 +134,18 @@ class ScraperEuskadi:
                             pass
 
                     detalle[campo_limpio] = valor
+
+            page_soup = BeautifulSoup(self.driver.page_source, "html.parser")
+            document_url = find_document_link(page_soup, url)
+            if document_url:
+                identifier = hashlib.sha256(url.encode("utf-8")).hexdigest()[:12]
+                filename = f"eus_{identifier}_pliego_tecnico.pdf"
+                try:
+                    detalle["pdf_prescripciones_tecnicas"] = download_document(
+                        requests.Session(), document_url, self.OUTPUT_DIR_PDF, filename, self.TIMEOUT
+                    )
+                except Exception as exc:
+                    print(f"⚠️ No se pudo descargar el pliego de Euskadi: {exc}")
         except:
             pass
 

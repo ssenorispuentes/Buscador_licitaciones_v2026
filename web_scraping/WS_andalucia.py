@@ -18,6 +18,7 @@ from selenium.common.exceptions import TimeoutException
 from webdriver_manager.chrome import ChromeDriverManager
 import unicodedata
 import hashlib
+from src.document_keywords import find_document_link
 
 
 class ScraperAndalucia:
@@ -158,25 +159,14 @@ class ScraperAndalucia:
                     if clave and valor and clave not in resultado:
                         resultado[clave] = valor
 
-            # --- Buscar PDF prescripciones técnicas ---
-            for h2 in soup.select("h2.seccion-indice"):
-                if "documentacion complementaria" in normalizar(h2.get_text(strip=True)):
-                    contenedor = h2.find_next("div")
-                    if contenedor:
-                        for link in contenedor.find_all("a", href=True):
-                            titulo = normalizar(link.get("title", ""))
-                            texto_link = normalizar(link.get_text(strip=True))
-                            if "prescripciones tecnicas" in titulo or "prescripciones tecnicas" in texto_link \
-                            or "ppt" in titulo or "ppt" in texto_link:
-                                url_pdf = urljoin(url_base, link["href"])
-                                identificador = hashlib.sha256(
-                                    url_base.encode("utf-8")
-                                ).hexdigest()[:12]
-                                nombre_archivo = f"and_{identificador}_pliego_tecnico.pdf"
-                                nombre_guardado = descargar_pdf(url_pdf, nombre_archivo)
-                                if nombre_guardado:
-                                    resultado["PDF Prescripciones Técnicas"] = nombre_guardado
-                                break  # solo queremos el primero
+            # Buscar pliegos en español, inglés, catalán/valenciano o euskera.
+            url_pdf = find_document_link(soup, url_base)
+            if url_pdf:
+                identificador = hashlib.sha256(url_base.encode("utf-8")).hexdigest()[:12]
+                nombre_archivo = f"and_{identificador}_pliego_tecnico.pdf"
+                nombre_guardado = descargar_pdf(url_pdf, nombre_archivo)
+                if nombre_guardado:
+                    resultado["PDF Prescripciones Técnicas"] = nombre_guardado
 
             return resultado
 

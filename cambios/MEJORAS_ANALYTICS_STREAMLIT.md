@@ -35,7 +35,8 @@ tarjetas resumen, histórico local y filtros explícitos para:
   etiquetas tecnológicas.
 
 La tabla muestra el nombre del PDF y una columna `URL` clicable que abre la ficha
-oficial. El esquema final pasa de 17 a 18 columnas para conservar ese enlace.
+oficial. El esquema final tiene 20 columnas tras incorporar también el código
+CPV y el importe con IVA cuando el portal lo publica.
 
 La búsqueda por palabra clave se muestra en el área principal, inmediatamente
 debajo del total de licitaciones. Las métricas técnicas y el contador «Con PDF»

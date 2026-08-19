@@ -57,6 +57,24 @@ def normalizar_importes(series):
     return pd.to_numeric(series, errors="coerce").fillna(0.0).clip(lower=0.0)
 
 
+def formatear_importe_compacto(value):
+    """Formatea para pantalla sin alterar el valor numérico usado por filtros."""
+    numeric = pd.to_numeric(value, errors="coerce")
+    if pd.isna(numeric) or numeric < 0:
+        return "-"
+    if numeric >= 1_000_000:
+        amount, suffix = numeric / 1_000_000, "M €"
+        decimals = 2
+    elif numeric >= 1_000:
+        amount, suffix = numeric / 1_000, "K €"
+        decimals = 1
+    else:
+        amount, suffix = numeric, "€"
+        decimals = 2 if numeric % 1 else 0
+    formatted = f"{amount:,.{decimals}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"{formatted} {suffix}"
+
+
 def es_tecnologica(series):
     normalized = series.fillna("").astype(str).map(lambda value: unidecode(value).lower().strip())
     return ~normalized.isin(TECH_EXCLUDED)
@@ -220,7 +238,8 @@ def main():
         st.stop()
     available = [column for column in rename_dict if column in raw_df.columns]
     df = raw_df[available].rename(columns=rename_dict)
-    for numeric in ("Importe (€)", "Valor estimado contrato (€)"):
+    monetary_columns = ("Importe (€)", "Importe con IVA (€)", "Valor estimado contrato (€)")
+    for numeric in monetary_columns:
         if numeric in df:
             df[numeric] = pd.to_numeric(df[numeric], errors="coerce")
     if "Estado" in df:
@@ -289,6 +308,9 @@ def main():
     st.subheader("Licitaciones")
     st.caption(f"{len(filtered):,} resultados de {len(df):,}")
     display = filtered.copy()
+    for monetary in monetary_columns:
+        if monetary in display:
+            display[monetary] = display[monetary].map(formatear_importe_compacto)
     status_icons = {"en plazo":"🟢", "adjudicada":"🔵", "formalizada":"🔵",
                     "anulada":"🔴", "cancelada":"🔴", "desistida":"🔴",
                     "suspendida":"🟠", "desierta":"⚫", "fuera de plazo":"⚫",
@@ -301,8 +323,9 @@ def main():
         "Título": st.column_config.TextColumn("Título", width="large"),
         "Resumen breve": st.column_config.TextColumn("Resumen breve", width="large"),
         "PDF / Ruta": st.column_config.TextColumn("Nombre del PDF", width="medium"),
-        "Importe (€)": st.column_config.NumberColumn("Importe (€)", format="%.2f €"),
-        "Valor estimado contrato (€)": st.column_config.NumberColumn("Valor estimado (€)", format="%.2f €"),
+        "Importe (€)": st.column_config.TextColumn("Importe (€)"),
+        "Importe con IVA (€)": st.column_config.TextColumn("Importe con IVA (€)"),
+        "Valor estimado contrato (€)": st.column_config.TextColumn("Valor estimado (€)"),
     }, hide_index=True, width="stretch", height=600)
 
     download_left, download_right = st.columns(2)
