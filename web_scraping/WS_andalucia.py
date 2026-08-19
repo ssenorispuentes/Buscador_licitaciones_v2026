@@ -17,6 +17,7 @@ from selenium.common.exceptions import TimeoutException
 
 from webdriver_manager.chrome import ChromeDriverManager
 import unicodedata
+import hashlib
 
 
 class ScraperAndalucia:
@@ -168,7 +169,10 @@ class ScraperAndalucia:
                             if "prescripciones tecnicas" in titulo or "prescripciones tecnicas" in texto_link \
                             or "ppt" in titulo or "ppt" in texto_link:
                                 url_pdf = urljoin(url_base, link["href"])
-                                nombre_archivo = 'and_pliego_prescripciones_' + url_pdf.split("/")[-1] + ".pdf"
+                                identificador = hashlib.sha256(
+                                    url_base.encode("utf-8")
+                                ).hexdigest()[:12]
+                                nombre_archivo = f"and_{identificador}_pliego_tecnico.pdf"
                                 nombre_guardado = descargar_pdf(url_pdf, nombre_archivo)
                                 if nombre_guardado:
                                     resultado["PDF Prescripciones Técnicas"] = nombre_guardado

@@ -1,7 +1,7 @@
 import os
 import pandas as pd
 import src.functions as functions
-import src.lda_processor as lda_processor
+from src.gemini_processor import LicitacionGeminiProcessor
 import configparser
 from web_scraping.WS_andalucia import ScraperAndalucia
 from web_scraping.WS_espana import ScraperEspana
@@ -30,6 +30,7 @@ def main(fecha_proceso = None, usar_scraping = True):
         columns_ini.read(columns_path)
         filename_codigo_nuts = config.get("input_output_path", "filename_codigo_nuts")
         output_dir = config.get("input_output_path", "output_dir_final", fallback="./output_final")
+        output_dir_pdf = config.get("input_output_path", "output_dir_pdf", fallback="./pdfs")
         dias_fecha_min = int(config.get("all_params", "dias_fecha_min"))
         os.makedirs(output_dir, exist_ok=True)
 
@@ -165,14 +166,21 @@ def main(fecha_proceso = None, usar_scraping = True):
                 "No se obtuvo ninguna licitación; se conserva el CSV anterior."
             )
 
-        # Inicializar el clasificador de tecnología
-        print("🟢 Clasificación de texto...")
-        processor = lda_processor.LicitacionTextProcessor(df_unificado, config_file="./config/scraper_config.ini")
+        df_unificado = df_unificado.dropna(subset=["titulo"]).reset_index(drop=True)
+        df_unificado = functions.asegurar_identificador_en_pdfs(
+            df_unificado, output_dir_pdf
+        )
+
+        # Clasificar primero con texto web; Gemini solo lee el PDF cuando hace falta.
+        print("🟢 Clasificación y resumen con Gemini...")
+        processor = LicitacionGeminiProcessor(
+            df_unificado, config_file="./config/scraper_config.ini"
+        )
         df_final = processor.procesar_completo()
+        df_final = functions.construir_salida_final(df_final)
 
         # Guardar
         output_file = os.path.join(output_dir, f"licitaciones.csv")
-        df_final = df_final.dropna(subset=['titulo'])
         df_final[df_final.select_dtypes(include=['object']).columns] = df_final.select_dtypes(include=['object']).fillna('NotFound')
         df_final[df_final.select_dtypes(include=['float','int']).columns] = df_final.select_dtypes(include=['float','int']).fillna(-1)
 
@@ -208,5 +216,4 @@ if __name__ == "__main__":
 #python main_scraping.py                  No hace scraping, lee ficheros con fecha más actualizada
 #python main_scraping.py 2024-06-01       No hace scraping, lee ficheros con fecha la que se le pasa
 #python main_scraping.py --usar_scraping  Hace scraping
-
 

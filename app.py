@@ -108,8 +108,8 @@ def main():
 
     if df is not None and not df.empty:
         df = df[[col for col in rename_dict if col in df.columns]].rename(columns=rename_dict)
-        if 'Fecha Ejecución Proceso' in df.columns:
-            fechas_proceso = pd.to_datetime(df['Fecha Ejecución Proceso'], errors='coerce').dropna()
+        if 'Fecha de ejecución del proceso' in df.columns:
+            fechas_proceso = pd.to_datetime(df['Fecha de ejecución del proceso'], errors='coerce').dropna()
             if not fechas_proceso.empty:
                 fecha_ejecucion = fechas_proceso.max().strftime("%Y-%m-%d")
                 st.info(f"**Fecha de ejecución del scraping:** {fecha_ejecucion}")
@@ -189,9 +189,9 @@ def main():
             cols_filtrar = df_base.columns
 
         # Filtro específico Clasificación en el sidebar
-        if "clasificacion" in df_no_favoritos.columns:
+        if "Clasificación" in df_no_favoritos.columns and "Clasificación" not in cols_filtrar:
             opciones_clasificacion = sorted(
-                df_no_favoritos["clasificacion"].fillna("No clasificado").unique().tolist()
+                df_no_favoritos["Clasificación"].fillna("No clasificado").unique().tolist()
             )
             seleccionadas_clasificacion = st.sidebar.multiselect(
                 "Clasificación",
@@ -200,7 +200,7 @@ def main():
             )
             if seleccionadas_clasificacion:
                 df_no_favoritos = df_no_favoritos[
-                    df_no_favoritos["clasificacion"].isin(seleccionadas_clasificacion)
+                    df_no_favoritos["Clasificación"].isin(seleccionadas_clasificacion)
                 ]
 
         for col in cols_filtrar:
@@ -286,32 +286,64 @@ def main():
 
     df_filtrado_actual = pd.concat([df_favoritos, df_no_favoritos], ignore_index=True).drop_duplicates()
 
+    favoritos_flags = df_filtrado_actual["Favorito"].tolist()
+    coincidencias_flags = df_filtrado_actual["CoincidePalabra"].tolist()
+
     def resaltar_filas(row):
-        if row.get("Favorito", False):
+        if favoritos_flags[row.name]:
             return ['background-color: #fff3b0'] * len(row)
-        elif row.get("CoincidePalabra", False):
+        elif coincidencias_flags[row.name]:
             return ['background-color: #ffe5e5'] * len(row)
         else:
             return [''] * len(row)
-    
-    df_style = df_filtrado_actual[cols_mostrar + ["Favorito", "CoincidePalabra"]] if "Favorito" in df_filtrado_actual.columns else df_filtrado_actual[cols_mostrar + ["CoincidePalabra"]]
-    df_style["Favorito"] = df_style["Favorito"].apply(lambda x: "⭐" if x else "")
+
+    df_style = df_filtrado_actual[cols_mostrar].copy().reset_index(drop=True)
+    indicadores_estado = {
+        "abierta": "🟢",
+        "en plazo": "🟢",
+        "publicada": "🟢",
+        "adjudicada": "🔵",
+        "anulada": "🔴",
+        "cancelada": "🔴",
+        "cerrada": "⚫",
+    }
+    if "Estado" in df_style.columns:
+        df_style["Estado"] = df_style["Estado"].apply(
+            lambda value: f"{next((icon for key, icon in indicadores_estado.items() if key in str(value).lower()), '🟡')} {value}"
+        )
     formato_numerico = {col: "{:,.2f}".format for col in df_style.select_dtypes(include=['float', 'int']).columns}
     st.dataframe(
         df_style.style.format(formato_numerico).apply(resaltar_filas, axis=1),
-        column_config={"URL": st.column_config.LinkColumn("URL")},
+        column_config={
+            "Título": st.column_config.TextColumn("Título", width="large"),
+            "Resumen breve": st.column_config.TextColumn("Resumen breve", width="large"),
+            "PDF / Ruta": st.column_config.TextColumn("PDF / Ruta", width="medium"),
+        },
         hide_index=True,
-        use_container_width=True
+        width="stretch"
     )
+
+    if not df_style.empty and "Título" in df_style.columns:
+        with st.expander("🔎 Ver título completo"):
+            title_options = {
+                f"{row.get('Nº Expediente', 'Sin expediente')} — {str(row['Título'])[:80]}": str(row["Título"])
+                for _, row in df_style.iterrows()
+            }
+            selected_title = st.selectbox(
+                "Selecciona una licitación",
+                options=list(title_options),
+                key="titulo_completo",
+            )
+            st.write(title_options[selected_title])
 
     st.success(f"🎉 {len(df_filtrado_actual)} licitaciones disponibles")
 
     col1, _, col2 = st.columns([1, 5, 1])
     with col1:
-        csv = df_filtrado_actual[cols_mostrar].drop(columns=["Favorito"], errors='ignore').to_csv(index=False).encode("utf-8")
+        csv = df_filtrado_actual[cols_mostrar].to_csv(index=False).encode("utf-8")
         st.download_button("📥 Descargar licitaciones filtradas", data=csv, file_name="licitaciones_filtradas.csv", mime="text/csv")
     with col2:
-        csv_fav = df_filtrado_actual[df_filtrado_actual['Favorito']][cols_mostrar].drop(columns=["Favorito"], errors='ignore').to_csv(index=False).encode("utf-8")
+        csv_fav = df_filtrado_actual[df_filtrado_actual['Favorito']][cols_mostrar].to_csv(index=False).encode("utf-8")
         st.download_button("📥 Descargar licitaciones favoritas", data=csv_fav, file_name="licitaciones_favoritas.csv", mime="text/csv")
 
     if "Favorito" in df_filtrado_actual.columns and not df_filtrado_actual[df_filtrado_actual["Favorito"]].empty:
@@ -326,7 +358,7 @@ def main():
                     st.dataframe(resultado[['Titulo', 'Nº Expediente', 'URL', 'Actualización']],
                                  column_config={"URL": st.column_config.LinkColumn("URL")},
                                  hide_index=True,
-                                 use_container_width=True)
+                                 width="stretch")
 
                     if resultado['Actualización'].sum() > 0:
                         st.markdown("##### 📄 Detalles de actualizaciones por licitación")

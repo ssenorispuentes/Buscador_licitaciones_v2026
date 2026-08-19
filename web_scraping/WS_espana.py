@@ -11,6 +11,7 @@ import unicodedata
 import os
 import time
 import requests
+import hashlib
 from datetime import datetime
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -114,6 +115,7 @@ class ScraperEspana:
     def extraer_detalle(self, enlace):
         detalle = {}
         wait = WebDriverWait(self.driver, 10)
+        identificador = hashlib.sha256(enlace.encode("utf-8")).hexdigest()[:12]
 
         try:
             # 👉 Abrir nueva pestaña con el enlace de detalle
@@ -165,10 +167,9 @@ class ScraperEspana:
                     enlace_pdf = fila_pliego.find_element(By.TAG_NAME, "a")
                     href = enlace_pdf.get_attribute("href")
                     if href:
-                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                        nombre_pdf = f"esp_pliego_prescripciones_{timestamp}.pdf"
+                        nombre_pdf = f"esp_{identificador}_pliego_tecnico.pdf"
                         ruta = os.path.join(self.OUTPUT_DIR_PDF, nombre_pdf)
-                        r = requests.get(href, stream=True)
+                        r = requests.get(href, stream=True, timeout=self.TIMEOUT)
                         if r.status_code == 200:
                             with open(ruta, 'wb') as f:
                                 for chunk in r.iter_content(1024):
@@ -185,17 +186,16 @@ class ScraperEspana:
                 print("❌ No se encontró fila con 'pliego' en la primera tabla, buscando en la segunda...")
 
                 try:
-                    WebDriverWait(self.driver, 3).until(
+                    WebDriverWait(self.driver, 7).until(
                         EC.presence_of_element_located((By.CSS_SELECTOR, "a.TextAlignCenter.celdaTam2"))
                     )
                     enlace_pdf = self.driver.find_element(By.CSS_SELECTOR, "a.TextAlignCenter.celdaTam2")
                     pdf_url = enlace_pdf.get_attribute("href")
                     if pdf_url:
                         print(f"📥 Encontrado PDF en la segunda tabla: {pdf_url}")
-                        response = requests.get(pdf_url)
+                        response = requests.get(pdf_url, timeout=self.TIMEOUT)
                         if response.status_code == 200:
-                            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                            nombre_pdf = f"esp_pliego_prescripciones_{timestamp}.pdf"
+                            nombre_pdf = f"esp_{identificador}_pliego_tecnico.pdf"
                             ruta = os.path.join(self.OUTPUT_DIR_PDF, nombre_pdf)
                             with open(ruta, 'wb') as f:
                                 f.write(response.content)
@@ -382,13 +382,11 @@ class ScraperEspana:
             # Cantidad de NaNs (vacíos)
             if 'pdf_pliego_prescripciones_tecnicas' not in df.columns:
                 df['pdf_pliego_prescripciones_tecnicas'] = None
-                nulos = df['pdf_pliego_prescripciones_tecnicas'].isna().sum()
-                # Cantidad de no nulos (con valor)
-                no_nulos = df['pdf_pliego_prescripciones_tecnicas'].notna().sum()
-                total = nulos + no_nulos
-                print(f"🟡 PDFs descargados con éxito en la página de gobierno de España: {no_nulos}/{total} ")
-            else:
                 print('No se encuentra información de Pliego en el detalle de la licitación')
+            nulos = df['pdf_pliego_prescripciones_tecnicas'].isna().sum()
+            no_nulos = df['pdf_pliego_prescripciones_tecnicas'].notna().sum()
+            total = nulos + no_nulos
+            print(f"🟡 PDFs descargados con éxito en la página de gobierno de España: {no_nulos}/{total} ")
             return df
         finally:
             self.driver.quit()

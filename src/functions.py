@@ -3,8 +3,30 @@ import pandas as pd
 import re 
 import os
 import unicodedata
+import hashlib
 from datetime import datetime
 from unidecode import unidecode
+
+
+FINAL_OUTPUT_COLUMNS = [
+    "estado_licitacion",
+    "fecha_limite_presentacion",
+    "resumen_breve",
+    "importe_licitacion",
+    "valor_estimado_contrato",
+    "titulo",
+    "numero_expediente",
+    "organo_contratacion",
+    "tipo_contrato",
+    "lugar_ejecucion",
+    "duracion_contrato",
+    "financiacion_ue",
+    "forma_presentacion",
+    "clasificacion",
+    "fuente",
+    "pdf",
+    "fecha_proceso",
+]
 
 def get_columns_dict(section):
     """
@@ -269,6 +291,103 @@ def normalizar_texto(texto):
     texto = unicodedata.normalize("NFD", texto)
     texto = texto.encode("ascii", "ignore").decode("utf-8")
     return texto
+
+
+def crear_identificador_licitacion(row):
+    """Crea un identificador estable sin añadir columnas a la salida final."""
+    fuente = str(row.get("fuente", "sin_fuente"))
+    expediente = str(row.get("numero_expediente", ""))
+    enlace = str(row.get("enlace", ""))
+    base = "|".join((fuente, expediente, enlace))
+    slug = unidecode(f"{fuente}_{expediente}").lower()
+    slug = re.sub(r"[^a-z0-9]+", "-", slug).strip("-")[:60]
+    digest = hashlib.sha256(base.encode("utf-8")).hexdigest()[:10]
+    return f"{slug or 'licitacion'}-{digest}"
+
+
+def asegurar_identificador_en_pdfs(df, output_dir_pdf):
+    """Renombra PDFs para incluir el identificador estable de su licitación."""
+    result = df.copy()
+    os.makedirs(output_dir_pdf, exist_ok=True)
+    for idx, row in result.iterrows():
+        pdf_name = str(row.get("pdf", "")).strip()
+        if not pdf_name or pdf_name.lower() in {"nan", "none", "notfound"}:
+            continue
+        source = os.path.join(output_dir_pdf, os.path.basename(pdf_name))
+        if not os.path.isfile(source):
+            print(f"⚠️ No se puede identificar un PDF inexistente: {source}")
+            result.at[idx, "pdf"] = "No disponible"
+            continue
+        identifier = crear_identificador_licitacion(row)
+        extension = os.path.splitext(source)[1].lower() or ".pdf"
+        target_name = f"{identifier}_pliego_tecnico{extension}"
+        target = os.path.join(output_dir_pdf, target_name)
+        if os.path.abspath(source) != os.path.abspath(target):
+            if os.path.exists(target):
+                os.remove(source)
+            else:
+                os.replace(source, target)
+        result.at[idx, "pdf"] = target_name
+    return result
+
+
+def construir_salida_final(df):
+    """Construye por nombre el esquema contractual de 17 columnas.
+
+    Esta función evita el antiguo desplazamiento causado por índices duplicados
+    en los ficheros INI y falla de forma explícita si el orden se altera.
+    """
+    result = df.copy()
+    provincia = result.get("provincia_ejecucion", pd.Series("", index=result.index))
+    comunidad = result.get(
+        "comunidad_autonoma_ejecucion", pd.Series("", index=result.index)
+    )
+
+    def build_location(province, region):
+        values = []
+        for value in (province, region):
+            value = str(value).strip()
+            if value.lower() not in {"", "nan", "none", "notfound"} and value not in values:
+                values.append(value)
+        return " / ".join(values) if values else "No disponible"
+
+    result["lugar_ejecucion"] = [
+        build_location(province, region) for province, region in zip(provincia, comunidad)
+    ]
+    defaults = {
+        "resumen_breve": "Sin resumen disponible",
+        "clasificacion": "No clasificada",
+        "pdf": "No disponible",
+    }
+    for column in FINAL_OUTPUT_COLUMNS:
+        if column not in result.columns:
+            result[column] = defaults.get(column, None)
+
+    result["pdf"] = result["pdf"].apply(
+        lambda value: "No disponible"
+        if str(value).strip().lower() in {"", "nan", "none", "notfound"}
+        else os.path.basename(str(value).strip())
+    )
+
+    def normalize_funding(value):
+        text = str(value).strip()
+        lowered = text.lower()
+        if lowered in {"", "nan", "none", "notfound", "no aplica"}:
+            return "No disponible"
+        if "no hay financi" in lowered or lowered == "no":
+            return "No"
+        if "%" in text:
+            return text
+        if any(term in lowered for term in ("sí", "si", "fondo europeo", "unión europea", "union europea", "next generation", "plan de recuperación")):
+            return "Sí"
+        return text
+
+    result["financiacion_ue"] = result["financiacion_ue"].apply(normalize_funding)
+
+    result = result.loc[:, FINAL_OUTPUT_COLUMNS].copy()
+    if list(result.columns) != FINAL_OUTPUT_COLUMNS:
+        raise AssertionError("El esquema final no coincide con las 17 columnas requeridas")
+    return result
 
 def leer_fichero_licitaciones(input_dir, comunidad,sep = '\t', fecha_proceso=None):
     """
