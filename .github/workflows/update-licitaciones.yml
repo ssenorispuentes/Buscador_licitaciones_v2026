@@ -28,6 +28,14 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements-scraping.txt
 
+      - name: Restaurar caché de respuestas Gemini
+        uses: actions/cache@v4
+        with:
+          path: .gemini_cache
+          key: gemini-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            gemini-${{ runner.os }}-
+
       - name: Ejecutar scraping
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

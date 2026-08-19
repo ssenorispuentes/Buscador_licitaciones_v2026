@@ -1,4 +1,5 @@
 import configparser
+import hashlib
 import json
 import os
 import re
@@ -36,10 +37,50 @@ class LicitacionGeminiProcessor:
         )
         self.max_retries = self.config.getint("gemini", "max_retries", fallback=3)
         self.retry_delay = self.config.getfloat("gemini", "retry_delay_seconds", fallback=2)
+        self.cache_dir = Path(
+            self.config.get("gemini", "cache_dir", fallback="./.gemini_cache")
+        )
+        self.cache_version = self.config.get("gemini", "cache_version", fallback="1")
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.categories = self._load_categories()
         self.tech_keywords = self._load_keywords("palabras_clave_tecnologia")
         self.non_tech_keywords = self._load_keywords("palabras_descarte_tecnologia")
         self.client = self._create_client()
+        self.stats = {
+            "gemini_requeridas": 0,
+            "gemini_analizadas": 0,
+            "gemini_cache_reutilizadas": 0,
+            "gemini_api_solicitudes": 0,
+            "pdf_analizados_gemini": 0,
+            "gemini_api_disponible": self.client is not None,
+        }
+        self._quota_exhausted = False
+
+    def _cache_path(self, prompt, namespace):
+        payload = "\n".join((self.cache_version, self.model, namespace, prompt))
+        digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        return self.cache_dir / namespace / f"{digest}.json"
+
+    def _cache_get(self, prompt, namespace):
+        path = self._cache_path(prompt, namespace)
+        if not path.exists():
+            return None
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+            return value if isinstance(value, dict) else None
+        except (OSError, json.JSONDecodeError):
+            return None
+
+    def _cache_set(self, prompt, namespace, value):
+        if not isinstance(value, dict):
+            return
+        path = self._cache_path(prompt, namespace)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(".tmp")
+        temporary.write_text(
+            json.dumps(value, ensure_ascii=False, sort_keys=True), encoding="utf-8"
+        )
+        os.replace(temporary, path)
 
     def _create_client(self):
         if not self.api_key:
@@ -121,14 +162,19 @@ class LicitacionGeminiProcessor:
             raise ValueError("Gemini no devolvió un objeto JSON")
         return json.loads(cleaned[start : end + 1])
 
-    def _request(self, prompt):
-        if self.client is None:
+    def _request(self, prompt, namespace):
+        cached = self._cache_get(prompt, namespace)
+        if cached is not None:
+            self.stats["gemini_cache_reutilizadas"] += 1
+            return cached
+        if self.client is None or self._quota_exhausted:
             return None
         from google.genai import types
 
         last_error = None
         for attempt in range(1, self.max_retries + 1):
             try:
+                self.stats["gemini_api_solicitudes"] += 1
                 response = self.client.models.generate_content(
                     model=self.model,
                     contents=prompt,
@@ -137,10 +183,17 @@ class LicitacionGeminiProcessor:
                         temperature=0.1,
                     ),
                 )
-                return self._parse_json(response.text)
+                parsed = self._parse_json(response.text)
+                self._cache_set(prompt, namespace, parsed)
+                return parsed
             except Exception as exc:
                 last_error = exc
                 print(f"⚠️ Gemini intento {attempt}/{self.max_retries}: {exc}")
+                if "429" in str(exc) or "RESOURCE_EXHAUSTED" in str(exc):
+                    self._quota_exhausted = True
+                    self.client = None
+                    print("⚠️ Cuota de Gemini agotada; se usará el fallback local en el resto del lote.")
+                    break
                 if attempt < self.max_retries:
                     time.sleep(self.retry_delay * attempt)
         print(f"❌ Gemini no disponible tras reintentos: {last_error}")
@@ -261,16 +314,19 @@ EXTRACTO DEL PLIEGO:
         categories = []
         print(f"🤖 Clasificando {len(self.df)} licitaciones con {self.model}...")
         for position, (_, row) in enumerate(self.df.iterrows(), start=1):
+            self.stats["gemini_requeridas"] += 1
             web_text = self._web_text(row)
             fallback = self._fallback(web_text)
-            result = self._normalize_result(
-                self._request(self._web_prompt(web_text)), fallback
-            )
+            web_response = self._request(self._web_prompt(web_text), "web")
+            if isinstance(web_response, dict):
+                self.stats["gemini_analizadas"] += 1
+            result = self._normalize_result(web_response, fallback)
 
             if result["es_tecnologica"] and not result["informacion_web_suficiente"]:
                 pdf_text = self._pdf_text(row.get("pdf"))
                 if pdf_text:
-                    enriched = self._request(self._pdf_prompt(web_text, pdf_text))
+                    self.stats["pdf_analizados_gemini"] += 1
+                    enriched = self._request(self._pdf_prompt(web_text, pdf_text), "pdf")
                     if isinstance(enriched, dict):
                         candidate = dict(result)
                         candidate.update(enriched)

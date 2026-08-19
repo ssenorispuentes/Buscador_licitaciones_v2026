@@ -1,390 +1,262 @@
-import os
 import configparser
+import os
+from datetime import datetime
+from pathlib import Path
+
 import pandas as pd
 import streamlit as st
-from datetime import datetime
-import src.functions as functions
 from unidecode import unidecode
-# -------------------------------
-# Cargar config INI (scraper y columnas)
-# -------------------------------
+
+import src.functions as functions
+
+
+TECH_EXCLUDED = {"no tecnológica", "no tecnologica", "no clasificada", "notfound", ""}
+
+
 def cargar_config(config_file="./config/scraper_config.ini"):
     config = configparser.ConfigParser()
     config.optionxform = str
-    with open(config_file, encoding='utf-8') as f:
-        config.read_file(f)
-    output_dir = config.get('input_output_path', 'output_dir_final', fallback="./datos_licitaciones_final")
-    return output_dir
+    with open(config_file, encoding="utf-8") as file:
+        config.read_file(file)
+    return config.get("input_output_path", "output_dir_final", fallback="./datos_licitaciones_final")
+
 
 def cargar_columns_ini(columns_file="./config/scraper_columns.ini"):
     config = configparser.ConfigParser()
     config.optionxform = str
-    with open(columns_file, encoding='utf-8') as f:
-        config.read_file(f)
-    columns_ini = functions.get_columns_dict(config["final_columns_order_st"])
-    columns_fin = functions.get_columns_dict(config["final_columns_st"])
-    columns_filtrar = functions.get_columns_dict(config["filter_columns_app"])
-    
-    index_to_fin_name = {v: k for k, v in columns_fin.items()}
+    with open(columns_file, encoding="utf-8") as file:
+        config.read_file(file)
+    source = functions.get_columns_dict(config["final_columns_order_st"])
+    display = functions.get_columns_dict(config["final_columns_st"])
+    display_by_index = {index: name for name, index in display.items()}
+    return {internal: display_by_index[index] for internal, index in source.items() if index in display_by_index}
 
-    rename_dict = {}
-    for col_ini, idx in columns_ini.items():
-        if idx in index_to_fin_name:
-            col_final = index_to_fin_name[idx]
-            rename_dict[col_ini] = col_final
 
-    return rename_dict,list(columns_filtrar.keys())
-
-# -------------------------------
-# Cargar datos
-# -------------------------------
 @st.cache_data
 def cargar_datos(output_dir):
-    filename = f"licitaciones.csv"
-    csv_path = os.path.join(output_dir, filename)
+    csv_path = os.path.join(output_dir, "licitaciones.csv")
     if not os.path.exists(csv_path):
         return None, csv_path
-    df = pd.read_csv(csv_path, sep="\t", encoding="utf-8-sig")
-    df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
-    return df, csv_path
+    data = pd.read_csv(csv_path, sep="\t", encoding="utf-8-sig")
+    return data.loc[:, ~data.columns.str.contains("^Unnamed")], csv_path
 
-# -------------------------------
-# Aplicar filtros principales
-# -------------------------------
-def aplica_filtros_base(df, fecha_ini):
-    df_filter = df.copy()
-    if fecha_ini and 'Fecha Límite Presentación' in df_filter.columns:
-        fechas = pd.to_datetime(df_filter['Fecha Límite Presentación'], errors='coerce').dt.date
-        fechas = fechas.fillna(datetime(2100, 12, 31).date())
-        df_filter = df_filter[fechas >= fecha_ini]
 
-    return df_filter
+@st.cache_data
+def cargar_analytics(analytics_dir="./analytics"):
+    history = Path(analytics_dir) / "historico_ejecuciones.csv"
+    if not history.exists():
+        return pd.DataFrame()
+    try:
+        return pd.read_csv(history)
+    except (OSError, pd.errors.ParserError):
+        return pd.DataFrame()
 
-# -----------------------------------------------------------
-# Buscar actualizaciones en WEBs para licitaciones favoritas
-# -----------------------------------------------------------
+
+def normalizar_importes(series):
+    # Los scrapers históricos usan -1 para indicar importe desconocido.
+    return pd.to_numeric(series, errors="coerce").fillna(0.0).clip(lower=0.0)
+
+
+def es_tecnologica(series):
+    normalized = series.fillna("").astype(str).map(lambda value: unidecode(value).lower().strip())
+    return ~normalized.isin(TECH_EXCLUDED)
+
+
+def aplicar_filtros(df, expediente="", palabras="", importe_min=None, importe_max=None,
+                    fecha_desde=None, valor_estimado=None, tipos=None, fuentes=None,
+                    grupo_clasificacion="Todas", etiquetas=None):
+    result = df.copy()
+    if expediente.strip() and "Nº Expediente" in result:
+        needle = unidecode(expediente).lower().strip()
+        result = result[result["Nº Expediente"].fillna("").astype(str).map(
+            lambda value: needle in unidecode(value).lower())]
+
+    terms = [unidecode(term).lower().strip() for term in palabras.split(",") if term.strip()]
+    if terms:
+        searchable = result.astype(str).apply(lambda column: column.map(lambda value: unidecode(value).lower()))
+        mask = pd.Series(False, index=result.index)
+        for term in terms:
+            mask |= searchable.apply(lambda column: column.str.contains(term, regex=False)).any(axis=1)
+        result = result[mask]
+
+    if "Importe (€)" in result:
+        amounts = normalizar_importes(result["Importe (€)"])
+        if importe_min is not None:
+            result = result[amounts >= importe_min]
+            amounts = amounts.loc[result.index]
+        if importe_max is not None:
+            result = result[amounts <= importe_max]
+    if fecha_desde is not None and "Fecha Límite Presentación" in result:
+        dates = pd.to_datetime(result["Fecha Límite Presentación"], errors="coerce")
+        result = result[dates.dt.date >= fecha_desde]
+    if valor_estimado is not None and "Valor estimado contrato (€)" in result:
+        values = normalizar_importes(result["Valor estimado contrato (€)"])
+        result = result[(values >= valor_estimado[0]) & (values <= valor_estimado[1])]
+    if tipos and "Tipo de contrato" in result:
+        result = result[result["Tipo de contrato"].isin(tipos)]
+    if fuentes and "Fuente" in result:
+        result = result[result["Fuente"].isin(fuentes)]
+    if "Clasificación" in result:
+        tech_mask = es_tecnologica(result["Clasificación"])
+        if grupo_clasificacion == "Tecnológicas":
+            result = result[tech_mask]
+        elif grupo_clasificacion == "No tecnológicas":
+            result = result[~tech_mask]
+        if etiquetas:
+            result = result[result["Clasificación"].isin(etiquetas)]
+    return result
+
+
 def buscar_actualizaciones_favs(favoritos_df):
     from web_scraping.WS_licitaciones_favs import ScraperLicFav
-    try:
-        if 'Fecha Ejecución Proceso' in favoritos_df.columns:
-            fecha_ultima_eje = pd.to_datetime(favoritos_df['Fecha Ejecución Proceso'], errors='coerce').max()
-        else:
-            st.warning("⚠️ No se encontró 'Fecha Ejecución Proceso' en las filas favoritas.")
-            return None
-        hoy = datetime.today().date()
-        config_path = "./config/scraper_config.ini"
-
-        scraper = ScraperLicFav(
-            df=favoritos_df,
-            fecha_ultima_eje=fecha_ultima_eje,
-            fecha=hoy,
-            url_col="URL",
-            fuente_col="Fuente",
-            config_file=config_path
-        )
-        resultado_df = scraper.ejecutar()
-
-        return resultado_df
-    except Exception as e:
-        st.error(f"❌ Error buscando actualizaciones: {e}")
+    date_column = "Fecha de ejecución del proceso"
+    if date_column not in favoritos_df:
+        st.warning(f"No se encontró '{date_column}' en las filas favoritas.")
         return None
-
-
-# -------------------------------
-# MAIN APP
-# -------------------------------
-def main():
-    st.set_page_config(
-        page_title="Buscador de Licitaciones Públicas",
-        layout="wide",
-        page_icon="📁",
-        initial_sidebar_state="expanded",
+    scraper = ScraperLicFav(
+        df=favoritos_df,
+        fecha_ultima_eje=pd.to_datetime(favoritos_df[date_column], errors="coerce").max(),
+        fecha=datetime.today().date(), url_col="URL", fuente_col="Fuente",
+        config_file="./config/scraper_config.ini",
     )
-    st.title("🔍 Buscador de Licitaciones Públicas")
+    return scraper.ejecutar()
+
+
+def aplicar_estilos():
+    st.markdown("""
+        <style>
+        .stApp { background: #f6f8fb; }
+        .block-container { padding-top: 1.5rem; padding-bottom: 3rem; }
+        [data-testid="stMetric"] { background:white; border:1px solid #e4e9f0;
+          border-radius:14px; padding:1rem 1.15rem; box-shadow:0 4px 18px rgba(22,34,51,.05); }
+        [data-testid="stSidebar"] { background:#fff; border-right:1px solid #e4e9f0; }
+        .run-banner { display:flex; justify-content:space-between; align-items:center;
+          padding:.85rem 1rem; border-radius:12px; color:#14324a;
+          background:linear-gradient(90deg,#e8f4ff,#effaf6); border:1px solid #cfe2ef;
+          margin:.5rem 0 1.2rem 0; }
+        .eyebrow { color:#44708f; font-size:.78rem; font-weight:700; letter-spacing:.08em; }
+        </style>
+    """, unsafe_allow_html=True)
+
+
+def main():
+    st.set_page_config(page_title="Observatorio de Licitaciones", page_icon="📊",
+                       layout="wide", initial_sidebar_state="expanded")
+    aplicar_estilos()
+    st.markdown('<div class="eyebrow">CONTRATACIÓN PÚBLICA · ESPAÑA</div>', unsafe_allow_html=True)
+    st.title("Observatorio de licitaciones")
+    st.caption("Búsqueda, clasificación tecnológica y seguimiento de oportunidades públicas.")
 
     output_dir = cargar_config()
-    rename_dict, _ = cargar_columns_ini()
-    df, _ = cargar_datos(output_dir)
-
-    if df is not None and not df.empty:
-        df = df[[col for col in rename_dict if col in df.columns]].rename(columns=rename_dict)
-        if 'Fecha de ejecución del proceso' in df.columns:
-            fechas_proceso = pd.to_datetime(df['Fecha de ejecución del proceso'], errors='coerce').dropna()
-            if not fechas_proceso.empty:
-                fecha_ejecucion = fechas_proceso.max().strftime("%Y-%m-%d")
-                st.info(f"**Fecha de ejecución del scraping:** {fecha_ejecucion}")
-            else:
-                st.info(f"**Fecha de ejecución del scraping:** No disponible")
-        else:
-            st.info(f"**Fecha de ejecución del scraping:** No disponible")
-    else:
-        st.warning("⚠️ No hay datos de scraping disponibles para mostrar la fecha.")
+    rename_dict = cargar_columns_ini()
+    raw_df, csv_path = cargar_datos(output_dir)
+    if raw_df is None or raw_df.empty:
+        st.warning(f"No hay datos disponibles en {csv_path}.")
         st.stop()
+    available = [column for column in rename_dict if column in raw_df.columns]
+    df = raw_df[available].rename(columns=rename_dict)
+    for numeric in ("Importe (€)", "Valor estimado contrato (€)"):
+        if numeric in df:
+            df[numeric] = pd.to_numeric(df[numeric], errors="coerce")
 
-    # Inicialización de claves únicas
-    if "clave_exp_input" not in st.session_state:
-        st.session_state["clave_exp_input"] = f"expedientes_input_{datetime.now().timestamp()}"
-    if "clave_palabras_input" not in st.session_state:
-        st.session_state["clave_palabras_input"] = f"palabras_clave_input_{datetime.now().timestamp()}"
+    run_dates = pd.to_datetime(df.get("Fecha de ejecución del proceso", pd.Series(dtype=str)),
+                               errors="coerce", utc=True).dropna()
+    run_text = (run_dates.max().tz_convert("Europe/Madrid").strftime("%d/%m/%Y · %H:%M:%S")
+                if not run_dates.empty else "No disponible")
+    st.markdown(f'<div class="run-banner"><strong>Último scraping</strong><span>🕒 {run_text}</span></div>',
+                unsafe_allow_html=True)
 
-    if "expedientes_favoritos_input" not in st.session_state:
-        st.session_state["expedientes_favoritos_input"] = ""
-    if "palabras_clave_input" not in st.session_state:
-        st.session_state["palabras_clave_input"] = ""
+    analytics = cargar_analytics()
+    latest = analytics.iloc[-1] if not analytics.empty else None
+    pdf_values = df.get("PDF / Ruta", pd.Series("", index=df.index)).fillna("").astype(str).str.lower()
+    pdf_present = ~pdf_values.isin({"", "nan", "none", "notfound", "no disponible"})
+    metric_cols = st.columns(4)
+    metric_cols[0].metric("Licitaciones", int(latest["total_licitaciones"]) if latest is not None else len(df))
+    metric_cols[1].metric("Con PDF", int(latest["pdf_descargados"]) if latest is not None else int(pdf_present.sum()))
+    metric_cols[2].metric("Gemini requeridas", int(latest["gemini_requeridas"]) if latest is not None else "Sin métrica local")
+    metric_cols[3].metric("Gemini completadas", int(latest["gemini_analizadas"]) if latest is not None else "Sin métrica local")
 
-    # Define funciones para actualizar estado
-    def actualizar_exp():
-        st.session_state["expedientes_favoritos"] = [
-            e.strip() for e in st.session_state["expedientes_favoritos_input"].split(",") if e.strip()
-        ]
+    st.sidebar.header("Filtros")
+    expediente = st.sidebar.text_input("Número de expediente", placeholder="Ej. 2026/123")
+    palabras = st.sidebar.text_input("Palabra clave", placeholder="software, datos, mantenimiento")
+    amount_data = normalizar_importes(df.get("Importe (€)", pd.Series(0, index=df.index)))
+    a_min, a_max = float(amount_data.min()), float(amount_data.max())
+    amount_cols = st.sidebar.columns(2)
+    importe_min = amount_cols[0].number_input("Importe mín.", min_value=0.0, value=a_min, step=1000.0)
+    importe_max = amount_cols[1].number_input("Importe máx.", min_value=0.0, value=a_max, step=1000.0)
+    valid_dates = pd.to_datetime(df.get("Fecha Límite Presentación"), errors="coerce").dropna()
+    default_date = valid_dates.min().date() if not valid_dates.empty else datetime.today().date()
+    fecha_desde = st.sidebar.date_input("Fecha límite igual o posterior a", value=default_date)
+    estimated = normalizar_importes(df.get("Valor estimado contrato (€)", pd.Series(0, index=df.index)))
+    e_min, e_max = float(estimated.min()), float(estimated.max())
+    if e_max > e_min:
+        valor_estimado = st.sidebar.slider("Valor estimado del contrato (€)", min_value=e_min,
+            max_value=e_max, value=(e_min, e_max), step=max((e_max - e_min) / 200, 1.0), format="%.0f €")
+    else:
+        st.sidebar.caption(f"Valor estimado único: {e_min:,.0f} €")
+        valor_estimado = (e_min, e_max)
+    tipos = st.sidebar.multiselect("Tipo de contrato",
+        sorted(df.get("Tipo de contrato", pd.Series(dtype=str)).dropna().astype(str).unique()))
+    fuentes = st.sidebar.multiselect("Fuente",
+        sorted(df.get("Fuente", pd.Series(dtype=str)).dropna().astype(str).unique()))
+    grupo = st.sidebar.radio("Clasificación principal", ["Todas", "Tecnológicas", "No tecnológicas"])
+    tech_categories = (sorted(df.loc[es_tecnologica(df["Clasificación"]), "Clasificación"]
+                              .dropna().astype(str).unique()) if "Clasificación" in df else [])
+    etiquetas = st.sidebar.multiselect("Etiquetas tecnológicas", tech_categories,
+        disabled=grupo == "No tecnológicas",
+        help="Opcional. Permite concretar una o varias categorías tecnológicas.")
 
-    def actualizar_palabras():
-        st.session_state["palabras_clave"] = [
-            unidecode(p.strip().lower()) for p in st.session_state["palabras_clave_input"].split(",") if p.strip()
-        ]
+    filtered = aplicar_filtros(df, expediente, palabras, importe_min, importe_max,
+        fecha_desde, valor_estimado, tipos, fuentes, grupo, etiquetas)
+    st.subheader("Licitaciones")
+    st.caption(f"{len(filtered):,} resultados de {len(df):,}")
+    display = filtered.copy()
+    status_icons = {"abierta":"🟢", "en plazo":"🟢", "publicada":"🟢",
+                    "adjudicada":"🔵", "anulada":"🔴", "cancelada":"🔴", "cerrada":"⚫"}
+    if "Estado" in display:
+        display["Estado"] = display["Estado"].map(lambda value:
+            f"{next((icon for key, icon in status_icons.items() if key in str(value).lower()), '🟡')} {value}")
+    st.dataframe(display, column_config={
+        "URL": st.column_config.LinkColumn("Licitación", display_text="Abrir ficha ↗"),
+        "Título": st.column_config.TextColumn("Título", width="large"),
+        "Resumen breve": st.column_config.TextColumn("Resumen breve", width="large"),
+        "PDF / Ruta": st.column_config.TextColumn("Nombre del PDF", width="medium"),
+        "Importe (€)": st.column_config.NumberColumn("Importe (€)", format="%.2f €"),
+        "Valor estimado contrato (€)": st.column_config.NumberColumn("Valor estimado (€)", format="%.2f €"),
+    }, hide_index=True, width="stretch", height=600)
 
-    # Entrada para expedientes favoritos
-    st.markdown("##### ⭐ Introduce el número de expediente de tus licitaciones favoritas")
-    st.text_input(
-        "Ejemplo: nº expediente 1, nº expediente 2, nº expediente 3",
-        key="expedientes_favoritos_input",
-        value=st.session_state["expedientes_favoritos_input"],
-        on_change=actualizar_exp
-    )
+    download_left, download_right = st.columns(2)
+    download_left.download_button("Descargar resultados", filtered.to_csv(index=False).encode("utf-8-sig"),
+        "licitaciones_filtradas.csv", "text/csv", use_container_width=True)
+    with download_right.popover("Gestionar favoritas", use_container_width=True):
+        favorite_text = st.text_input("Expedientes favoritos, separados por comas")
+        favorites = [value.strip() for value in favorite_text.split(",") if value.strip()]
+        favorite_df = df[df["Nº Expediente"].astype(str).isin(favorites)] if favorites else df.iloc[0:0]
+        st.download_button("Descargar favoritas", favorite_df.to_csv(index=False).encode("utf-8-sig"),
+            "licitaciones_favoritas.csv", "text/csv", disabled=favorite_df.empty)
+        if st.button("Buscar actualizaciones", disabled=favorite_df.empty):
+            with st.spinner("Consultando los portales..."):
+                try:
+                    updates = buscar_actualizaciones_favs(favorite_df)
+                    if updates is not None:
+                        st.dataframe(updates, hide_index=True, width="stretch")
+                except Exception as exc:
+                    st.error(f"No se pudieron buscar actualizaciones: {exc}")
 
-    # Entrada para palabras clave
-    st.markdown("##### 🔎 Buscar por palabra(s) clave en cualquier columna")
-    st.text_input(
-        "Introduce palabras clave separadas por coma",
-        key="palabras_clave_input",
-        value=st.session_state["palabras_clave_input"],
-        on_change=actualizar_palabras
-    )
-
-    # Base de datos para mostrar
-    df_base = df.copy()
-
-    df_base["Favorito"] = df_base["Nº Expediente"].astype(str).isin(st.session_state.get("expedientes_favoritos", []))
-
-    df_favoritos = df_base[df_base["Favorito"]].copy()
-    df_no_favoritos = df_base[~df_base["Favorito"]].copy()
-
-    # Búsqueda por palabras clave
-    df_no_favoritos["CoincidePalabra"] = False
-    if "palabras_clave" in st.session_state and st.session_state["palabras_clave"]:
-        mask = pd.Series(False, index=df_no_favoritos.index)
-        for col in df_no_favoritos.select_dtypes(include=['object']).columns:
-            col_sin_acentos = df_no_favoritos[col].astype(str).apply(lambda x: unidecode(x.lower()))
-            for palabra in st.session_state["palabras_clave"]:
-                mask |= col_sin_acentos.str.contains(palabra, na=False)
-        df_no_favoritos = df_no_favoritos[mask]
-        df_no_favoritos["CoincidePalabra"] = True
-
-    # Filtros dinámicos
-    with st.sidebar.expander("🎛️ Filtros dinámicos y columnas", expanded=True):
-        cols_mostrar = [c for c in df_base.columns if c not in ['Favorito']]
-        try:
-            cols_filtrar = cargar_columns_ini()[1]
-        except:
-            cols_filtrar = df_base.columns
-
-        # Filtro específico Clasificación en el sidebar
-        if "Clasificación" in df_no_favoritos.columns and "Clasificación" not in cols_filtrar:
-            opciones_clasificacion = sorted(
-                df_no_favoritos["Clasificación"].fillna("No clasificado").unique().tolist()
-            )
-            seleccionadas_clasificacion = st.sidebar.multiselect(
-                "Clasificación",
-                options=opciones_clasificacion,
-                key="filtro_clasificacion"
-            )
-            if seleccionadas_clasificacion:
-                df_no_favoritos = df_no_favoritos[
-                    df_no_favoritos["Clasificación"].isin(seleccionadas_clasificacion)
-                ]
-
-        for col in cols_filtrar:
-            if col not in df_no_favoritos.columns:
-                continue
-
-            if pd.api.types.is_bool_dtype(df_base[col]):
-                opciones = [True, False]
-                seleccionadas = st.sidebar.multiselect(f"{col}", options=opciones, key=f"filtro_{col}")
-                if seleccionadas and len(seleccionadas) < 2:
-                    df_no_favoritos = df_no_favoritos[df_no_favoritos[col].isin(seleccionadas)]
-            elif pd.api.types.is_numeric_dtype(df_base[col]):
-                col_data = df_no_favoritos[col].dropna()
-                if not col_data.empty and col_data.min() != col_data.max():
-                    max_quantile = 0.95
-                    min_val = float(col_data.min())
-                    max_val = float(col_data.max())
-                    q_high = float(col_data.quantile(max_quantile))
-
-                    excluir_outliers = st.sidebar.checkbox(
-                        f"📉 Excluir valores máximos atípicos en {col}",
-                        value=True
-                    )
-
-                    max_slider_val = q_high if excluir_outliers else max_val
-
-                    if excluir_outliers:
-                        n_excluidas = (col_data > q_high).sum()
-                        st.sidebar.markdown(
-                            f"<small style='color: grey;'>ℹ️ Se excluyen {n_excluidas} licitaciones con valor superior a {q_high:,.2f}</small>",
-                            unsafe_allow_html=True
-                        )
-
-                    # Slider principal
-                    slider_vals = st.sidebar.slider(
-                        f"{col}",
-                        min_value=min_val,
-                        max_value=max_slider_val,
-                        value=(min_val, max_slider_val),
-                        step=(max_slider_val - min_val) / 100 if max_slider_val > min_val else 1.0,
-                        format="%.2f"
-                    )
-
-                    # Inputs manuales debajo del slider, alineados
-                    col_input_min, col_input_max = st.sidebar.columns(2)
-                    with col_input_min:
-                        input_min = st.number_input(
-                            f"Mín. {col}", value=float(slider_vals[0]), key=f"{col}_min_input", format="%.2f"
-                        )
-                    with col_input_max:
-                        input_max = st.number_input(
-                            f"Máx. {col}", value=float(slider_vals[1]), key=f"{col}_max_input", format="%.2f"
-                        )
-
-                    # Validar inputs y aplicar
-                    rango_min = max(min_val, input_min)
-                    rango_max = min(max_slider_val, input_max)
-                    if rango_min > rango_max:
-                        rango_min, rango_max = rango_max, rango_min
-
-                    df_no_favoritos = df_no_favoritos[
-                        (df_no_favoritos[col] >= rango_min) & (df_no_favoritos[col] <= rango_max)
-                    ]
-            elif col == "Fecha Límite Presentación":
-                fechas_col = pd.to_datetime(df_no_favoritos[col], errors="coerce").dropna()
-                if fechas_col.empty:
-                    fecha_max = datetime.today().date()
-                    st.warning(f"⚠️ No hay fechas válidas en '{col}'. Se usa la fecha actual como valor por defecto.")
-                else:
-                    fecha_max = fechas_col.max().date()
-
-                fecha_seleccionada = st.sidebar.date_input(f"{col}", value=fecha_max, key=f"filtro_{col}")
-                df_no_favoritos[col] = pd.to_datetime(df_no_favoritos[col], errors="coerce")
-                df_no_favoritos = df_no_favoritos[df_no_favoritos[col].dt.date <= fecha_seleccionada]
-            else:
-                opciones = sorted(df_no_favoritos[col].fillna("").unique().tolist())
-                seleccionadas = st.sidebar.multiselect(f"{col}", options=opciones, key=f"filtro_{col}")
-                if seleccionadas:
-                    df_no_favoritos = df_no_favoritos[df_no_favoritos[col].fillna("").isin(seleccionadas)]
-
-    if "CoincidePalabra" not in df_favoritos.columns:
-        df_favoritos["CoincidePalabra"] = False
-
-    df_filtrado_actual = pd.concat([df_favoritos, df_no_favoritos], ignore_index=True).drop_duplicates()
-
-    favoritos_flags = df_filtrado_actual["Favorito"].tolist()
-    coincidencias_flags = df_filtrado_actual["CoincidePalabra"].tolist()
-
-    def resaltar_filas(row):
-        if favoritos_flags[row.name]:
-            return ['background-color: #fff3b0'] * len(row)
-        elif coincidencias_flags[row.name]:
-            return ['background-color: #ffe5e5'] * len(row)
-        else:
-            return [''] * len(row)
-
-    df_style = df_filtrado_actual[cols_mostrar].copy().reset_index(drop=True)
-    indicadores_estado = {
-        "abierta": "🟢",
-        "en plazo": "🟢",
-        "publicada": "🟢",
-        "adjudicada": "🔵",
-        "anulada": "🔴",
-        "cancelada": "🔴",
-        "cerrada": "⚫",
-    }
-    if "Estado" in df_style.columns:
-        df_style["Estado"] = df_style["Estado"].apply(
-            lambda value: f"{next((icon for key, icon in indicadores_estado.items() if key in str(value).lower()), '🟡')} {value}"
-        )
-    formato_numerico = {col: "{:,.2f}".format for col in df_style.select_dtypes(include=['float', 'int']).columns}
-    st.dataframe(
-        df_style.style.format(formato_numerico).apply(resaltar_filas, axis=1),
-        column_config={
-            "Título": st.column_config.TextColumn("Título", width="large"),
-            "Resumen breve": st.column_config.TextColumn("Resumen breve", width="large"),
-            "PDF / Ruta": st.column_config.TextColumn("PDF / Ruta", width="medium"),
-        },
-        hide_index=True,
-        width="stretch"
-    )
-
-    if not df_style.empty and "Título" in df_style.columns:
-        with st.expander("🔎 Ver título completo"):
-            title_options = {
-                f"{row.get('Nº Expediente', 'Sin expediente')} — {str(row['Título'])[:80]}": str(row["Título"])
-                for _, row in df_style.iterrows()
-            }
-            selected_title = st.selectbox(
-                "Selecciona una licitación",
-                options=list(title_options),
-                key="titulo_completo",
-            )
-            st.write(title_options[selected_title])
-
-    st.success(f"🎉 {len(df_filtrado_actual)} licitaciones disponibles")
-
-    col1, _, col2 = st.columns([1, 5, 1])
-    with col1:
-        csv = df_filtrado_actual[cols_mostrar].to_csv(index=False).encode("utf-8")
-        st.download_button("📥 Descargar licitaciones filtradas", data=csv, file_name="licitaciones_filtradas.csv", mime="text/csv")
-    with col2:
-        csv_fav = df_filtrado_actual[df_filtrado_actual['Favorito']][cols_mostrar].to_csv(index=False).encode("utf-8")
-        st.download_button("📥 Descargar licitaciones favoritas", data=csv_fav, file_name="licitaciones_favoritas.csv", mime="text/csv")
-
-    if "Favorito" in df_filtrado_actual.columns and not df_filtrado_actual[df_filtrado_actual["Favorito"]].empty:
-        if st.button("🔍 Buscar actualizaciones en licitaciones favoritas"):
-            with st.spinner("Buscando actualizaciones en favoritos, esto puede tardar..."):
-                resultado = buscar_actualizaciones_favs(df_filtrado_actual[df_filtrado_actual["Favorito"]])
-                if resultado is not None:
-                    if resultado['Actualización'].sum() > 0:
-                        st.success(f"✅ Se encontraron {resultado['Actualización'].sum()} licitaciones con actualizaciones")
-                    else:
-                        st.error(f"❌ No se encontraron actualizaciones")
-                    st.dataframe(resultado[['Titulo', 'Nº Expediente', 'URL', 'Actualización']],
-                                 column_config={"URL": st.column_config.LinkColumn("URL")},
-                                 hide_index=True,
-                                 width="stretch")
-
-                    if resultado['Actualización'].sum() > 0:
-                        st.markdown("##### 📄 Detalles de actualizaciones por licitación")
-                        for idx, row in resultado.iterrows():
-                            url = row.get("URL", f"Licitación {idx}")
-                            nuevos_docs = row.get("Nuevos Documentos", [])
-                            if nuevos_docs:
-                                with st.expander(f"🔍 Ver detalles de: {url} ({len(nuevos_docs)} documentos nuevos)"):
-                                    st.json(nuevos_docs, expanded=True)
-
-                        csv_res = resultado.to_csv(index=False).encode("utf-8")
-                        st.download_button("📥 Descargar resultados de actualizaciones",
-                                           data=csv_res,
-                                           file_name="actualizaciones_favoritas.csv",
-                                           mime="text/csv")
-
-
-    # Notas al pie
-    st.markdown("---")
-    st.caption("""
-    **Fuente de datos:** [Portal de Contratación del Estado Español](https://contrataciondelestado.es/wps/portal/!ut/p/b1/jc7LDoIwEAXQb-EDzExLqbAEyqMEBeWh7YawMAbDY2P8fqtxKzq7m5ybuaBBbQhB16OUEBvOoOf-MVz7-7DM_fjKmncsKsIwTim6lS2Q5qJpeGpi4higDHDskLVZW_JKJogyjUXeEAcTyv_r45fz8Vf_BHqd0A9Ym_gGKxv26TJdQBm27fw2OvjSs7EIjuZRVu7qMqEEkUENSgQw6TH25I31vmU9AXx4is8!/dl4/d5/L2dBISEvZ0FBIS9nQSEh/pw/Z7_AVEQAI930OBRD02JPMTPG21004/act/id=0/p=javax.servlet.include.path_info=QCPjspQCPbusquedaQCPFormularioBusqueda.jsp/610892277200/-/), [Junta de Andalucía](https://www.juntadeandalucia.es/haciendayadministracionpublica/apl/pdc-front-publico/perfiles-licitaciones/buscador-general), [Contratos públicos Comunidad de Madrid](https://contratos-publicos.comunidad.madrid), [Contratos Euskadi](https://www.uragentzia.euskadi.eus/webura00-contents/es/contenidos/informacion/widget_kontratazio_ura/es_def/widget-contratacion/anuncios-abiertos.html)      
-    **Nota:** Los resultados pueden estar limitados por filtros aplicados en scraping. Para búsquedas más avanzadas, visita el portal directamente.
-    """) 
-
-
-
+    if not analytics.empty:
+        with st.expander("Histórico local de ejecuciones"):
+            labels = {"fecha_hora_inicio":"Inicio", "duracion_segundos":"Duración (s)",
+                "total_licitaciones":"Licitaciones", "pdf_descargados":"Con PDF",
+                "gemini_requeridas":"Gemini requeridas", "gemini_analizadas":"Gemini completadas",
+                "gemini_cache_reutilizadas":"Respuestas desde caché",
+                "gemini_api_solicitudes":"Peticiones nuevas a Gemini",
+                "pdf_analizados_gemini":"PDF leídos por Gemini"}
+            columns = [column for column in labels if column in analytics]
+            st.dataframe(analytics[columns].rename(columns=labels).iloc[::-1],
+                         hide_index=True, width="stretch")
+    st.divider()
+    st.caption("Fuentes: Plataforma de Contratación del Sector Público, Junta de Andalucía, "
+               "Comunidad de Madrid y Contratación Pública de Euskadi. Verifica siempre la ficha oficial.")
 
 
 if __name__ == "__main__":

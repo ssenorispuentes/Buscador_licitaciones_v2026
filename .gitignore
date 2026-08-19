@@ -14,4 +14,6 @@ __pycache__/
 *.pyo
 *.log
 /logs
+/analytics/
+/.gemini_cache/
 .~lock.*#

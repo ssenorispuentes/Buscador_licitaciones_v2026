@@ -2,6 +2,7 @@ import os
 import pandas as pd
 import src.functions as functions
 from src.gemini_processor import LicitacionGeminiProcessor
+from src.analytics import contar_pdfs, guardar_metricas
 import configparser
 from web_scraping.WS_andalucia import ScraperAndalucia
 from web_scraping.WS_espana import ScraperEspana
@@ -14,7 +15,9 @@ import sys
 def main(fecha_proceso = None, usar_scraping = True):
     # 🕒 Inicio de ejecución y redirección de salida
     start_time = time.time()
-    log_filename = f"logs/ejecucion_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.txt"
+    started_at = datetime.now().astimezone()
+    execution_id = started_at.strftime('%Y-%m-%d_%H-%M-%S')
+    log_filename = f"logs/ejecucion_{execution_id}.txt"
     os.makedirs("logs", exist_ok=True)
 
     original_stdout = sys.stdout  # Guarda la salida original
@@ -170,6 +173,7 @@ def main(fecha_proceso = None, usar_scraping = True):
         df_unificado = functions.asegurar_identificador_en_pdfs(
             df_unificado, output_dir_pdf
         )
+        pdf_descargados = contar_pdfs(df_unificado, output_dir_pdf)
 
         # Clasificar primero con texto web; Gemini solo lee el PDF cuando hace falta.
         print("🟢 Clasificación y resumen con Gemini...")
@@ -177,6 +181,8 @@ def main(fecha_proceso = None, usar_scraping = True):
             df_unificado, config_file="./config/scraper_config.ini"
         )
         df_final = processor.procesar_completo()
+        # Se conserva fecha y hora (con zona) para mostrarla permanentemente en la app.
+        df_final["fecha_proceso"] = started_at.isoformat(timespec="seconds")
         df_final = functions.construir_salida_final(df_final)
 
         # Guardar
@@ -190,6 +196,17 @@ def main(fecha_proceso = None, usar_scraping = True):
         end_time = time.time()
         elapsed = end_time - start_time
         print(f"⏱ Tiempo total de ejecución: {elapsed:.2f} segundos")
+        metrics = {
+            "ejecucion_id": execution_id,
+            "fecha_hora_inicio": started_at.isoformat(timespec="seconds"),
+            "fecha_hora_fin": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "duracion_segundos": round(elapsed, 2),
+            "total_licitaciones": int(len(df_final)),
+            "pdf_descargados": int(pdf_descargados),
+            **processor.stats,
+        }
+        json_path, history_path = guardar_metricas(metrics)
+        print(f"📊 Métricas locales guardadas en {json_path} y {history_path}")
     sys.stdout = original_stdout  # Restaura salida original
     print(f"✅ Ejecución finalizada. Log guardado en: {log_filename}")
 
@@ -216,4 +233,3 @@ if __name__ == "__main__":
 #python main_scraping.py                  No hace scraping, lee ficheros con fecha más actualizada
 #python main_scraping.py 2024-06-01       No hace scraping, lee ficheros con fecha la que se le pasa
 #python main_scraping.py --usar_scraping  Hace scraping
-

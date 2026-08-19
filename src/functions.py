@@ -24,6 +24,7 @@ FINAL_OUTPUT_COLUMNS = [
     "forma_presentacion",
     "clasificacion",
     "fuente",
+    "enlace",
     "pdf",
     "fecha_proceso",
 ]
@@ -314,14 +315,19 @@ def asegurar_identificador_en_pdfs(df, output_dir_pdf):
         if not pdf_name or pdf_name.lower() in {"nan", "none", "notfound"}:
             continue
         source = os.path.join(output_dir_pdf, os.path.basename(pdf_name))
-        if not os.path.isfile(source):
-            print(f"⚠️ No se puede identificar un PDF inexistente: {source}")
-            result.at[idx, "pdf"] = "No disponible"
-            continue
         identifier = crear_identificador_licitacion(row)
         extension = os.path.splitext(source)[1].lower() or ".pdf"
         target_name = f"{identifier}_pliego_tecnico{extension}"
         target = os.path.join(output_dir_pdf, target_name)
+        if not os.path.isfile(source):
+            # Los CSV intermedios conservan el nombre descargado originalmente.
+            # En una segunda ejecución el fichero ya puede tener el nombre final.
+            if os.path.isfile(target):
+                result.at[idx, "pdf"] = target_name
+                continue
+            print(f"⚠️ No se puede identificar un PDF inexistente: {source}")
+            result.at[idx, "pdf"] = "No disponible"
+            continue
         if os.path.abspath(source) != os.path.abspath(target):
             if os.path.exists(target):
                 os.remove(source)
@@ -332,7 +338,7 @@ def asegurar_identificador_en_pdfs(df, output_dir_pdf):
 
 
 def construir_salida_final(df):
-    """Construye por nombre el esquema contractual de 17 columnas.
+    """Construye por nombre el esquema contractual de 18 columnas.
 
     Esta función evita el antiguo desplazamiento causado por índices duplicados
     en los ficheros INI y falla de forma explícita si el orden se altera.
@@ -357,6 +363,7 @@ def construir_salida_final(df):
     defaults = {
         "resumen_breve": "Sin resumen disponible",
         "clasificacion": "No clasificada",
+        "enlace": "No disponible",
         "pdf": "No disponible",
     }
     for column in FINAL_OUTPUT_COLUMNS:
@@ -386,7 +393,7 @@ def construir_salida_final(df):
 
     result = result.loc[:, FINAL_OUTPUT_COLUMNS].copy()
     if list(result.columns) != FINAL_OUTPUT_COLUMNS:
-        raise AssertionError("El esquema final no coincide con las 17 columnas requeridas")
+        raise AssertionError("El esquema final no coincide con las 18 columnas requeridas")
     return result
 
 def leer_fichero_licitaciones(input_dir, comunidad,sep = '\t', fecha_proceso=None):
