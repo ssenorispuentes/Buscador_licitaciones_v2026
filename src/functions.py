@@ -32,23 +32,63 @@ FINAL_OUTPUT_COLUMNS = [
 ]
 
 FIELD_ALIASES = {
-    "numero_expediente": ["numero_de_expediente", "numero_expediente", "file", "expediente", "expedient_zenbakia", "codi_expedient", "codigo_expediente", "reference_number", "referencia"],
-    "codigo_cpv": ["codigo_cpv", "cpv_code", "clasificacion_cpv", "codi_cpv", "cpv_kodea", "cpv"],
-    "importe_licitacion": ["presupuesto_base_de_licitacion_sin_impuestos", "base_bidding_budget_without_taxes", "importe_de_licitacion_sin_iva", "presupuesto_del_contrato_sin_iva", "presupuesto_base_licitacion_sin_impuestos", "pressupost_base_de_licitacio_sense_impostos", "budget_without_tax", "importe"],
-    "importe_con_iva": ["presupuesto_base_de_licitacion_con_impuestos", "importe_de_licitacion_con_iva", "importe_con_iva", "presupuesto_base_licitacion_importe_total", "budget_with_taxes", "total_amount_tax_included", "pressupost_amb_iva", "iva_incluido"],
-    "valor_estimado_contrato": ["valor_estimado_del_contrato", "estimated_value_of_the_contract", "valor_estimado_sin_impuestos", "valor_estimado", "valor_estimat_del_contracte", "estimated_value"],
-    "titulo": ["titulo", "titulo_de_expediente", "subject_of_the_contract", "objeto_del_contrato", "objecte_del_contracte", "kontratuaren_xedea", "descripcion", "description"],
-    "organo_contratacion": ["organo_de_contratacion", "organo_contratacion", "contracting_party", "organ_de_contractacio", "botere_esleitzailea", "poder_adjudicador", "contracting_authority"],
-    "estado_licitacion": ["estado", "state_of_the_tender", "estado_licitacion", "estado_de_la_licitacion", "estado_de_la_tramitacion", "situacion", "estat_de_la_licitacio", "egoera", "status"],
-    "tipo_contrato": ["tipo_de_contrato", "tipo_contrato", "type_of_contract", "tipus_de_contracte", "kontratu_mota", "contract_type"],
-    "lugar_ejecucion": ["lugar_de_ejecucion", "place_of_execution", "lloc_dexecucio", "lloc_d_execucio", "gauzatze_lekua", "codigo_nuts"],
-    "procedimiento_contratacion": ["procedimiento_de_contratacion", "procedimiento", "procedimiento_de_adjudicacion", "procurement_procedure", "procediment_de_contractacio", "esleipen_prozedura"],
-    "forma_presentacion": ["metodo_de_presentacion_de_la_oferta", "metodo_de_presentacion_de_ofertas", "method_of_presenting_the_offer", "forma_de_presentacion", "ofertak_aurkezteko_modua"],
-    "fecha_limite_presentacion": ["fecha_fin_de_presentacion_de_oferta", "fecha_fin_de_presentacion", "fecha_limite", "fecha_limite_de_presentacion_de_ofertas", "fecha_y_hora_limite_de_presentacion_de_ofertas_o_solicitudes_de_participacion", "end_date_for_the_submission_of_offers", "fecha_limite_presentacion", "data_limit_de_presentacio", "eskaintzak_aurkezteko_azken_eguna", "submission_deadline"],
-    "financiacion_ue": ["financiacion_ue", "financiacion_de_la_union_europea", "financiado_por", "eu_financing", "financiacio_de_la_unio_europea", "ebko_finantzaketa"],
-    "sistema_contratacion": ["sistema_de_contratacion", "sistema_de_contractacio", "contracting_system", "sistema_de_racionalizacion"],
+    "numero_expediente": ["numero_de_expediente", "numero_expediente", "expediente", "expedient_zenbakia", "codi_expedient", "codigo_expediente", "referencia"],
+    "codigo_cpv": ["codigo_cpv", "clasificacion_cpv", "codi_cpv", "cpv_kodea", "cpv"],
+    "importe_licitacion": ["presupuesto_base_de_licitacion_sin_impuestos", "importe_de_licitacion_sin_iva", "presupuesto_del_contrato_sin_iva", "presupuesto_base_licitacion_sin_impuestos", "pressupost_base_de_licitacio_sense_impostos", "importe"],
+    "importe_con_iva": ["presupuesto_base_de_licitacion_con_impuestos", "importe_de_licitacion_con_iva", "importe_con_iva", "presupuesto_base_licitacion_importe_total", "pressupost_amb_iva", "iva_incluido"],
+    "valor_estimado_contrato": ["valor_estimado_del_contrato", "valor_estimado_sin_impuestos", "valor_estimado", "valor_estimat_del_contracte"],
+    "titulo": ["titulo", "titulo_de_expediente", "objeto_del_contrato", "objecte_del_contracte", "kontratuaren_xedea", "descripcion"],
+    "organo_contratacion": ["organo_de_contratacion", "organo_contratacion", "organ_de_contractacio", "botere_esleitzailea", "poder_adjudicador"],
+    "estado_licitacion": ["estado", "estado_licitacion", "estado_de_la_licitacion", "estado_de_la_tramitacion", "situacion", "estat_de_la_licitacio", "egoera"],
+    "tipo_contrato": ["tipo_de_contrato", "tipo_contrato", "tipus_de_contracte", "kontratu_mota"],
+    "lugar_ejecucion": ["lugar_de_ejecucion", "lloc_dexecucio", "lloc_d_execucio", "gauzatze_lekua", "codigo_nuts"],
+    "procedimiento_contratacion": ["procedimiento_de_contratacion", "procedimiento", "procedimiento_de_adjudicacion", "procediment_de_contractacio", "esleipen_prozedura"],
+    "forma_presentacion": ["metodo_de_presentacion_de_la_oferta", "metodo_de_presentacion_de_ofertas", "forma_de_presentacion", "ofertak_aurkezteko_modua"],
+    "fecha_limite_presentacion": ["fecha_fin_de_presentacion_de_oferta", "fecha_fin_de_presentacion", "fecha_limite", "fecha_limite_de_presentacion_de_ofertas", "fecha_y_hora_limite_de_presentacion_de_ofertas_o_solicitudes_de_participacion", "fecha_limite_presentacion", "data_limit_de_presentacio", "eskaintzak_aurkezteko_azken_eguna"],
+    "financiacion_ue": ["financiacion_ue", "financiacion_de_la_union_europea", "financiado_por", "financiacio_de_la_unio_europea", "ebko_finantzaketa"],
+    "sistema_contratacion": ["sistema_de_contratacion", "sistema_de_contractacio", "sistema_de_racionalizacion"],
     "enlace": ["enlace", "url", "enlace_detalle", "url_detail"],
     "pdf": ["pdf", "pdf_pliego_prescripciones_tecnicas", "pdf_prescripciones_tecnicas"],
+}
+
+# Traducción explícita usada únicamente cuando el campo normal no tiene valor.
+FIELD_MAP = {
+    "contracting_party": "Órgano de contratación",
+    "file_number": "Expediente",
+    "subject": "Objeto del contrato",
+    "bidding_link": "Enlace a la licitación",
+    "tender_state": "Estado de la licitación",
+    "eu_financing": "Financiación UE",
+    "base_budget_no_tax": "Presupuesto base de licitación sin impuestos",
+    "estimated_value": "Valor estimado del contrato",
+    "contract_type": "Tipo de contrato",
+    "cpv_code": "Código CPV",
+    "place_of_execution": "Lugar de ejecución",
+    "procurement_procedure": "Procedimiento de contratación",
+    "processing_type": "Tipo de tramitación",
+    "offer_submission_method": "Forma de presentación de la oferta",
+    "submission_deadline": "Fecha fin de presentación de ofertas",
+    "base_budget_with_tax": "Presupuesto base de licitación con impuestos",
+}
+
+ENGLISH_FIELD_ALIASES = {
+    "organo_contratacion": ["contracting_party", "contracting_authority"],
+    "numero_expediente": ["file_number", "file", "reference_number"],
+    "titulo": ["subject", "subject_of_the_contract", "description"],
+    "enlace": ["bidding_link", "tender_link", "url_detail"],
+    "estado_licitacion": ["tender_state", "state_of_the_tender", "status"],
+    "financiacion_ue": ["eu_financing"],
+    "importe_licitacion": ["base_budget_no_tax", "base_bidding_budget_without_taxes", "budget_without_tax"],
+    "importe_con_iva": ["base_budget_with_tax", "base_bidding_budget_with_taxes", "budget_with_taxes", "total_amount_tax_included", "tax_included_amount"],
+    "valor_estimado_contrato": ["estimated_value", "estimated_value_of_the_contract"],
+    "tipo_contrato": ["contract_type", "type_of_contract"],
+    "codigo_cpv": ["cpv_code"],
+    "lugar_ejecucion": ["place_of_execution"],
+    "procedimiento_contratacion": ["procurement_procedure"],
+    "tramitacion": ["processing_type", "type_of_processing"],
+    "forma_presentacion": ["offer_submission_method", "method_of_presenting_the_offer"],
+    "fecha_limite_presentacion": ["submission_deadline", "end_date_for_the_submission_of_offers"],
+    "sistema_contratacion": ["contracting_system"],
 }
 
 
@@ -58,24 +98,34 @@ def normalizar_nombre_campo(name):
 
 
 def normalizar_columnas_multilingues(df):
-    """Añade campos canónicos coalesciendo etiquetas equivalentes ES/EN/CA/EU."""
+    """Unifica campos; el inglés solo rellena valores no detectados normalmente."""
     result = df.copy()
     normalized_columns = {normalizar_nombre_campo(column): column for column in result.columns}
     invalid = {"", "nan", "none", "notfound", "-1"}
-    for canonical, aliases in FIELD_ALIASES.items():
+    canonical_fields = set(FIELD_ALIASES) | set(ENGLISH_FIELD_ALIASES)
+    for canonical in canonical_fields:
+        aliases = FIELD_ALIASES.get(canonical, [])
         candidates = []
         for alias in [canonical, *aliases]:
             original = normalized_columns.get(normalizar_nombre_campo(alias))
             if original is not None and original not in candidates:
                 candidates.append(original)
-        if not candidates:
-            continue
         combined = pd.Series(None, index=result.index, dtype="object")
         for candidate in candidates:
             values = result[candidate]
             valid = ~values.fillna("").astype(str).str.strip().str.lower().isin(invalid)
             combined = combined.where(combined.notna(), values.where(valid))
-        result[canonical] = combined
+        # Solo cuando lo anterior no aporta valor se sospecha que la ficha está
+        # en inglés y se consultan sus equivalentes explícitos.
+        for alias in ENGLISH_FIELD_ALIASES.get(canonical, []):
+            original = normalized_columns.get(normalizar_nombre_campo(alias))
+            if original is None:
+                continue
+            values = result[original]
+            valid = ~values.fillna("").astype(str).str.strip().str.lower().isin(invalid)
+            combined = combined.where(combined.notna(), values.where(valid))
+        if combined.notna().any():
+            result[canonical] = combined
     return result
 
 def get_columns_dict(section):

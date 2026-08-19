@@ -9,6 +9,11 @@
   se muestra `-`.
 - `src/functions.py` coalesce etiquetas equivalentes en español, inglés,
   catalán/valenciano y euskera antes de aplicar el mapeo específico del portal.
+  El mapeo inglés es un fallback por fila: solo rellena un campo cuando los
+  nombres habituales no han producido valor, por lo que nunca sustituye datos
+  españoles ya detectados. Incluye las variantes reales de PLACSP y nombres
+  simplificados como `file_number`, `subject`, `tender_state`,
+  `base_budget_no_tax`, `base_budget_with_tax` y `submission_deadline`.
 - El parser de fechas reconoce meses españoles, ingleses y catalanes, además de
   formatos numéricos con o sin hora.
 - La detección de documentos usa términos multilingües centralizados en

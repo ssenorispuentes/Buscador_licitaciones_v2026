@@ -119,15 +119,43 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(result["Nº Expediente"].tolist(), ["A", "B"])
 
     def test_aliases_multilingues_recuperan_cpv_iva_y_expediente(self):
-        source = pd.DataFrame([{
-            "File": "CON/45/25", "CPV code": "45216111",
-            "Total amount tax included": "2157129.84",
-            "Contracting Party": "Ayuntamiento",
-        }])
+        source = pd.DataFrame([
+            {"File number": "CON/45/25", "CPV code": "45216111",
+             "Base budget with tax": "2157129.84", "Contracting Party": "Ayuntamiento"},
+            {"numero_de_expediente": "ESP-1", "File number": "EN-IGNORADO",
+             "organo_de_contratacion": "Órgano español", "Contracting Party": "English party"},
+        ])
         result = normalizar_columnas_multilingues(source)
         self.assertEqual(result.loc[0, "numero_expediente"], "CON/45/25")
         self.assertEqual(result.loc[0, "codigo_cpv"], "45216111")
         self.assertEqual(result.loc[0, "importe_con_iva"], "2157129.84")
+        self.assertEqual(result.loc[1, "numero_expediente"], "ESP-1")
+        self.assertEqual(result.loc[1, "organo_contratacion"], "Órgano español")
+
+    def test_field_map_ingles_completo(self):
+        source = pd.DataFrame([{
+            "contracting_party": "Council", "file_number": "FILE-1",
+            "subject": "Technical services", "bidding_link": "https://example.test/tender",
+            "tender_state": "Published", "eu_financing": "Yes",
+            "base_budget_no_tax": "1000", "base_budget_with_tax": "1210",
+            "estimated_value": "1500", "contract_type": "Services",
+            "cpv_code": "72000000", "place_of_execution": "Murcia",
+            "procurement_procedure": "Open", "processing_type": "Ordinary",
+            "offer_submission_method": "Electronic", "submission_deadline": "08-Sep-2026",
+        }])
+        result = normalizar_columnas_multilingues(source)
+        expected = {
+            "organo_contratacion": "Council", "numero_expediente": "FILE-1",
+            "titulo": "Technical services", "enlace": "https://example.test/tender",
+            "estado_licitacion": "Published", "financiacion_ue": "Yes",
+            "importe_licitacion": "1000", "importe_con_iva": "1210",
+            "valor_estimado_contrato": "1500", "tipo_contrato": "Services",
+            "codigo_cpv": "72000000", "lugar_ejecucion": "Murcia",
+            "procedimiento_contratacion": "Open", "tramitacion": "Ordinary",
+            "forma_presentacion": "Electronic", "fecha_limite_presentacion": "08-Sep-2026",
+        }
+        for column, value in expected.items():
+            self.assertEqual(result.loc[0, column], value, column)
 
     def test_salida_cpv_elimina_descripcion(self):
         source = pd.DataFrame([{
