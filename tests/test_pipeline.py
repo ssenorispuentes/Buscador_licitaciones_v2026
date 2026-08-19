@@ -103,6 +103,15 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(normalizar_estado("Adjudicada", "2026-09-01", date(2026, 8, 19)), "Adjudicada")
         self.assertEqual(normalizar_estado("Abierta", None, date(2026, 8, 19)), "Abierta (plazo sin confirmar)")
 
+    def test_filtro_por_estado_permite_seleccion_multiple(self):
+        source = pd.DataFrame([
+            {"Nº Expediente": "A", "Estado": "En plazo"},
+            {"Nº Expediente": "B", "Estado": "Adjudicada"},
+            {"Nº Expediente": "C", "Estado": "Fuera de plazo"},
+        ])
+        result = aplicar_filtros(source, estados=["En plazo", "Adjudicada"])
+        self.assertEqual(result["Nº Expediente"].tolist(), ["A", "B"])
+
     def test_metricas_se_guardan_en_json_e_historico(self):
         with tempfile.TemporaryDirectory() as directory:
             metrics = {

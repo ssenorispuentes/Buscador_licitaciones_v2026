@@ -26,6 +26,7 @@ son de diagnóstico y no se muestran en la web pública.
 tarjetas resumen, histórico local y filtros explícitos para:
 
 - Número de expediente y palabras clave.
+- Selección múltiple por estado normalizado.
 - Importe mínimo y máximo.
 - Fecha límite igual o posterior a la fecha seleccionada.
 - Rango de valor estimado mediante slider.
@@ -35,6 +36,10 @@ tarjetas resumen, histórico local y filtros explícitos para:
 
 La tabla muestra el nombre del PDF y una columna `URL` clicable que abre la ficha
 oficial. El esquema final pasa de 17 a 18 columnas para conservar ese enlace.
+
+La búsqueda por palabra clave se muestra en el área principal, inmediatamente
+debajo del total de licitaciones. Las métricas técnicas y el contador «Con PDF»
+no se muestran en la cabecera pública.
 
 El estado visible se normaliza dinámicamente. Los estados administrativos
 definitivos (anulada, adjudicada, formalizada, desierta, desistida o suspendida)

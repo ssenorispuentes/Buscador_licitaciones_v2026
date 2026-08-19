@@ -93,7 +93,7 @@ def normalizar_estado(value, deadline, today=None):
 
 def aplicar_filtros(df, expediente="", palabras="", importe_min=None, importe_max=None,
                     fecha_desde=None, valor_estimado=None, tipos=None, fuentes=None,
-                    grupo_clasificacion="Todas", etiquetas=None):
+                    estados=None, grupo_clasificacion="Todas", etiquetas=None):
     result = df.copy()
     if expediente.strip() and "Nº Expediente" in result:
         needle = unidecode(expediente).lower().strip()
@@ -125,6 +125,8 @@ def aplicar_filtros(df, expediente="", palabras="", importe_min=None, importe_ma
         result = result[result["Tipo de contrato"].isin(tipos)]
     if fuentes and "Fuente" in result:
         result = result[result["Fuente"].isin(fuentes)]
+    if estados and "Estado" in result:
+        result = result[result["Estado"].isin(estados)]
     if "Clasificación" in result:
         tech_mask = es_tecnologica(result["Clasificación"])
         if grupo_clasificacion == "Tecnológicas":
@@ -204,16 +206,20 @@ def main():
                 unsafe_allow_html=True)
     st.markdown(f'<div class="tender-count">{len(df):,} licitaciones encontradas</div>',
                 unsafe_allow_html=True)
+    palabras = st.text_input(
+        "Buscar por palabra clave",
+        placeholder="Ej. software, datos, mantenimiento",
+        help="Puedes introducir varias palabras separadas por comas.",
+    )
 
     analytics = cargar_analytics()
-    latest = analytics.iloc[-1] if not analytics.empty else None
-    pdf_values = df.get("PDF / Ruta", pd.Series("", index=df.index)).fillna("").astype(str).str.lower()
-    pdf_present = ~pdf_values.isin({"", "nan", "none", "notfound", "no disponible"})
-    st.metric("Con PDF", int(latest["pdf_descargados"]) if latest is not None else int(pdf_present.sum()))
 
     st.sidebar.header("Filtros")
     expediente = st.sidebar.text_input("Número de expediente", placeholder="Ej. 2026/123")
-    palabras = st.sidebar.text_input("Palabra clave", placeholder="software, datos, mantenimiento")
+    estados = st.sidebar.multiselect(
+        "Estado de la licitación",
+        sorted(df.get("Estado", pd.Series(dtype=str)).dropna().astype(str).unique()),
+    )
     amount_data = normalizar_importes(df.get("Importe (€)", pd.Series(0, index=df.index)))
     a_min, a_max = float(amount_data.min()), float(amount_data.max())
     amount_cols = st.sidebar.columns(2)
@@ -241,8 +247,13 @@ def main():
         disabled=grupo == "No tecnológicas",
         help="Opcional. Permite concretar una o varias categorías tecnológicas.")
 
-    filtered = aplicar_filtros(df, expediente, palabras, importe_min, importe_max,
-        fecha_desde, valor_estimado, tipos, fuentes, grupo, etiquetas)
+    filtered = aplicar_filtros(
+        df, expediente=expediente, palabras=palabras,
+        importe_min=importe_min, importe_max=importe_max,
+        fecha_desde=fecha_desde, valor_estimado=valor_estimado,
+        tipos=tipos, fuentes=fuentes, estados=estados,
+        grupo_clasificacion=grupo, etiquetas=etiquetas,
+    )
     st.subheader("Licitaciones")
     st.caption(f"{len(filtered):,} resultados de {len(df):,}")
     display = filtered.copy()
