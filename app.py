@@ -94,7 +94,12 @@ def buscar_actualizaciones_favs(favoritos_df):
 # MAIN APP
 # -------------------------------
 def main():
-    st.set_page_config(page_title="Buscador de Licitaciones Públicas", layout="wide", page_icon="📁")
+    st.set_page_config(
+        page_title="Buscador de Licitaciones Públicas",
+        layout="wide",
+        page_icon="📁",
+        initial_sidebar_state="expanded",
+    )
     st.title("🔍 Buscador de Licitaciones Públicas")
 
     output_dir = cargar_config()
@@ -176,7 +181,7 @@ def main():
         df_no_favoritos["CoincidePalabra"] = True
 
     # Filtros dinámicos
-    with st.sidebar.expander("🎛️ Filtros dinámicos y columnas"):
+    with st.sidebar.expander("🎛️ Filtros dinámicos y columnas", expanded=True):
         cols_mostrar = [c for c in df_base.columns if c not in ['Favorito']]
         try:
             cols_filtrar = cargar_columns_ini()[1]
