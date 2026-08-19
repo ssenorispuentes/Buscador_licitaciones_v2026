@@ -5,7 +5,6 @@ import streamlit as st
 from datetime import datetime
 import src.functions as functions
 from unidecode import unidecode
-import numpy as np
 # -------------------------------
 # Cargar config INI (scraper y columnas)
 # -------------------------------
