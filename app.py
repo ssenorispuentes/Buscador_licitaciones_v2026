@@ -156,18 +156,50 @@ def buscar_actualizaciones_favs(favoritos_df):
 def aplicar_estilos():
     st.markdown("""
         <style>
-        .stApp { background: #f6f8fb; }
-        .block-container { padding-top: 1.5rem; padding-bottom: 3rem; }
-        [data-testid="stMetric"] { background:white; border:1px solid #e4e9f0;
-          border-radius:14px; padding:1rem 1.15rem; box-shadow:0 4px 18px rgba(22,34,51,.05); }
-        [data-testid="stSidebar"] { background:#fff; border-right:1px solid #e4e9f0; }
+        :root { --navy:#172554; --indigo:#4338ca; --cyan:#0891b2;
+          --coral:#f97360; --mist:#f4f7ff; --line:#dfe5f2; }
+        .stApp { background:
+          radial-gradient(circle at 92% 3%, rgba(8,145,178,.12), transparent 24rem),
+          radial-gradient(circle at 44% -8%, rgba(99,102,241,.10), transparent 28rem),
+          #f8faff; color:#18243f; }
+        [data-testid="stHeader"] { background:transparent; }
+        .block-container { padding-top:2rem; padding-bottom:3rem; max-width:1500px; }
+        h1 { color:var(--navy); font-weight:780 !important; letter-spacing:-.035em !important; }
+        h2, h3 { color:#24386b; letter-spacing:-.018em; }
+        [data-testid="stSidebar"] {
+          background:linear-gradient(180deg,#eef2ff 0%,#f5f3ff 50%,#ecfeff 100%);
+          border-right:1px solid #d9def0; box-shadow:8px 0 28px rgba(30,41,89,.06); }
+        [data-testid="stSidebar"] h2 { color:var(--navy); font-weight:750; }
+        [data-baseweb="input"], [data-baseweb="select"] > div,
+        [data-testid="stNumberInput"] input, [data-testid="stDateInput"] input {
+          border-radius:11px !important; border-color:#cbd5ea !important;
+          background:rgba(255,255,255,.92) !important; }
+        [data-baseweb="input"]:focus-within, [data-baseweb="select"] > div:focus-within {
+          border-color:var(--cyan) !important; box-shadow:0 0 0 3px rgba(8,145,178,.12) !important; }
+        [data-testid="stDataFrame"] { border:1px solid var(--line); border-radius:16px;
+          overflow:hidden; box-shadow:0 12px 35px rgba(30,41,89,.08); background:white; }
+        .stButton > button, .stDownloadButton > button, [data-testid="stPopover"] > button {
+          border-radius:11px !important; border:1px solid #c8d1e5 !important;
+          font-weight:650 !important; transition:all .18s ease !important; }
+        .stButton > button:hover, .stDownloadButton > button:hover,
+        [data-testid="stPopover"] > button:hover {
+          border-color:var(--indigo) !important; color:var(--indigo) !important;
+          transform:translateY(-1px); box-shadow:0 7px 18px rgba(67,56,202,.13); }
+        [data-testid="stDownloadButton"] button[kind="secondary"] {
+          background:linear-gradient(135deg,var(--indigo),#6366f1) !important;
+          color:white !important; border:none !important; }
         .run-banner { display:inline-flex; align-items:center; gap:.45rem;
-          padding:.65rem .9rem; border-radius:10px; color:#14324a;
-          background:linear-gradient(90deg,#e8f4ff,#effaf6); border:1px solid #cfe2ef;
-          margin:.5rem 0 .65rem 0; }
-        .tender-count { color:#14324a; font-size:1.15rem; font-weight:650;
+          padding:.65rem .95rem; border-radius:999px; color:#253268;
+          background:rgba(238,242,255,.92); border:1px solid #cdd5fa;
+          box-shadow:0 5px 16px rgba(67,56,202,.08); margin:.5rem 0 .7rem 0; }
+        .run-banner span { color:var(--cyan); font-weight:700; }
+        .tender-count { color:var(--navy); font-size:1.18rem; font-weight:720;
           margin:0 0 1.1rem 0; }
-        .eyebrow { color:#44708f; font-size:.78rem; font-weight:700; letter-spacing:.08em; }
+        .tender-count::before { content:'◆'; color:var(--coral); font-size:.75rem; margin-right:.5rem; }
+        .eyebrow { color:var(--cyan); font-size:.76rem; font-weight:800;
+          letter-spacing:.13em; margin-bottom:.2rem; }
+        [data-testid="stCaptionContainer"] { color:#66728d; }
+        hr { border-color:#dce3f1 !important; }
         </style>
     """, unsafe_allow_html=True)
 
