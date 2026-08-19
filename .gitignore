@@ -6,6 +6,8 @@ prueba.csv
 *.pyc
 .idea/
 venv/
+.env
+gemini_model_tester.py
 
 __pycache__/
 *.py[cod]
