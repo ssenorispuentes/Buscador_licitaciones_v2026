@@ -62,6 +62,35 @@ def es_tecnologica(series):
     return ~normalized.isin(TECH_EXCLUDED)
 
 
+def normalizar_estado(value, deadline, today=None):
+    """Combina el estado del portal con la fecha límite para mostrar uno útil."""
+    today = today or datetime.today().date()
+    original = str(value).strip()
+    normalized = unidecode(original).lower()
+    terminal_states = (
+        (("anulad", "cancelad"), "Anulada"),
+        (("formaliz",), "Formalizada"),
+        (("adjudic",), "Adjudicada"),
+        (("desiert",), "Desierta"),
+        (("desist",), "Desistida"),
+        (("suspend",), "Suspendida"),
+    )
+    for terms, label in terminal_states:
+        if any(term in normalized for term in terms):
+            return label
+
+    parsed_deadline = pd.to_datetime(deadline, errors="coerce")
+    if not pd.isna(parsed_deadline):
+        return "En plazo" if parsed_deadline.date() >= today else "Fuera de plazo"
+    if any(term in normalized for term in ("abiert", "en plazo")):
+        return "Abierta (plazo sin confirmar)"
+    if "publicad" in normalized:
+        return "Publicada (plazo sin confirmar)"
+    if normalized in {"", "nan", "none", "notfound", "-1"}:
+        return "Estado no disponible"
+    return original
+
+
 def aplicar_filtros(df, expediente="", palabras="", importe_min=None, importe_max=None,
                     fecha_desde=None, valor_estimado=None, tipos=None, fuentes=None,
                     grupo_clasificacion="Todas", etiquetas=None):
@@ -160,6 +189,12 @@ def main():
     for numeric in ("Importe (€)", "Valor estimado contrato (€)"):
         if numeric in df:
             df[numeric] = pd.to_numeric(df[numeric], errors="coerce")
+    if "Estado" in df:
+        deadlines = df.get("Fecha Límite Presentación", pd.Series(None, index=df.index))
+        df["Estado"] = [
+            normalizar_estado(state, deadline)
+            for state, deadline in zip(df["Estado"], deadlines)
+        ]
 
     run_dates = pd.to_datetime(df.get("Fecha de ejecución del proceso", pd.Series(dtype=str)),
                                errors="coerce", utc=True).dropna()
@@ -174,10 +209,7 @@ def main():
     latest = analytics.iloc[-1] if not analytics.empty else None
     pdf_values = df.get("PDF / Ruta", pd.Series("", index=df.index)).fillna("").astype(str).str.lower()
     pdf_present = ~pdf_values.isin({"", "nan", "none", "notfound", "no disponible"})
-    metric_cols = st.columns(3)
-    metric_cols[0].metric("Con PDF", int(latest["pdf_descargados"]) if latest is not None else int(pdf_present.sum()))
-    metric_cols[1].metric("Gemini requeridas", int(latest["gemini_requeridas"]) if latest is not None else "Sin métrica local")
-    metric_cols[2].metric("Gemini completadas", int(latest["gemini_analizadas"]) if latest is not None else "Sin métrica local")
+    st.metric("Con PDF", int(latest["pdf_descargados"]) if latest is not None else int(pdf_present.sum()))
 
     st.sidebar.header("Filtros")
     expediente = st.sidebar.text_input("Número de expediente", placeholder="Ej. 2026/123")
@@ -214,8 +246,10 @@ def main():
     st.subheader("Licitaciones")
     st.caption(f"{len(filtered):,} resultados de {len(df):,}")
     display = filtered.copy()
-    status_icons = {"abierta":"🟢", "en plazo":"🟢", "publicada":"🟢",
-                    "adjudicada":"🔵", "anulada":"🔴", "cancelada":"🔴", "cerrada":"⚫"}
+    status_icons = {"en plazo":"🟢", "adjudicada":"🔵", "formalizada":"🔵",
+                    "anulada":"🔴", "cancelada":"🔴", "desistida":"🔴",
+                    "suspendida":"🟠", "desierta":"⚫", "fuera de plazo":"⚫",
+                    "cerrada":"⚫"}
     if "Estado" in display:
         display["Estado"] = display["Estado"].map(lambda value:
             f"{next((icon for key, icon in status_icons.items() if key in str(value).lower()), '🟡')} {value}")
@@ -250,10 +284,7 @@ def main():
         with st.expander("Histórico local de ejecuciones"):
             labels = {"fecha_hora_inicio":"Inicio", "duracion_segundos":"Duración (s)",
                 "total_licitaciones":"Licitaciones", "pdf_descargados":"Con PDF",
-                "gemini_requeridas":"Gemini requeridas", "gemini_analizadas":"Gemini completadas",
-                "gemini_cache_reutilizadas":"Respuestas desde caché",
-                "gemini_api_solicitudes":"Peticiones nuevas a Gemini",
-                "pdf_analizados_gemini":"PDF leídos por Gemini"}
+            }
             columns = [column for column in labels if column in analytics]
             st.dataframe(analytics[columns].rename(columns=labels).iloc[::-1],
                          hide_index=True, width="stretch")

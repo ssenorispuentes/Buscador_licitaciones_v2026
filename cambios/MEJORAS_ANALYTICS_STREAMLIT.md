@@ -8,13 +8,17 @@ Al finalizar el pipeline, `main_scraping.py` guarda en `analytics/`:
 - Una fila acumulada en `analytics/historico_ejecuciones.csv`.
 
 Se registran fecha y hora de inicio y fin, duración, total de licitaciones, PDF
-descargados, análisis Gemini requeridos, análisis Gemini completados, PDF leídos
-por Gemini y disponibilidad de la API. La carpeta `/analytics/` está incluida
+descargados, licitaciones para las que el pipeline pidió una clasificación,
+licitaciones que recibieron realmente una respuesta del modelo, PDF leídos
+para completar esa respuesta y disponibilidad de la API. La carpeta `/analytics/` está incluida
 en `.gitignore`; sus datos son locales y nunca deben añadirse al repositorio.
 
-La diferencia entre `gemini_requeridas` y `gemini_analizadas` permite detectar
-falta de clave, cuota agotada o errores de Google sin confundir el fallback con
-un análisis realizado por IA.
+En el fichero técnico, `gemini_requeridas` significa «licitaciones que el
+pipeline quería enviar al modelo» y `gemini_analizadas` significa «licitaciones
+para las que se obtuvo una respuesta válida de Gemini, nueva o desde caché».
+La diferencia permite detectar falta de clave, cuota agotada o errores de Google
+sin confundir el fallback local con un análisis realizado por IA. Estas métricas
+son de diagnóstico y no se muestran en la web pública.
 
 ## Interfaz
 
@@ -31,6 +35,12 @@ tarjetas resumen, histórico local y filtros explícitos para:
 
 La tabla muestra el nombre del PDF y una columna `URL` clicable que abre la ficha
 oficial. El esquema final pasa de 17 a 18 columnas para conservar ese enlace.
+
+El estado visible se normaliza dinámicamente. Los estados administrativos
+definitivos (anulada, adjudicada, formalizada, desierta, desistida o suspendida)
+tienen prioridad. Para el resto, una fecha límite igual o posterior a hoy se
+muestra como `En plazo` y una fecha anterior como `Fuera de plazo`. Si falta la
+fecha, se conserva `Abierta` o `Publicada` indicando `plazo sin confirmar`.
 
 ## Validación del 19/08/2026
 

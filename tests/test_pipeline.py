@@ -12,7 +12,7 @@ from src.functions import (
 )
 from src.gemini_processor import LicitacionGeminiProcessor
 from src.analytics import guardar_metricas
-from app import aplicar_filtros
+from app import aplicar_filtros, normalizar_estado
 
 
 class PipelineTests(unittest.TestCase):
@@ -96,6 +96,12 @@ class PipelineTests(unittest.TestCase):
             source, fecha_desde=date(2026, 9, 1), grupo_clasificacion="Tecnológicas"
         )
         self.assertEqual(result["Nº Expediente"].tolist(), ["A-1"])
+
+    def test_estado_prioriza_fase_administrativa_y_despues_fecha(self):
+        self.assertEqual(normalizar_estado("Publicada", "2026-09-01", date(2026, 8, 19)), "En plazo")
+        self.assertEqual(normalizar_estado("Publicada", "2026-08-01", date(2026, 8, 19)), "Fuera de plazo")
+        self.assertEqual(normalizar_estado("Adjudicada", "2026-09-01", date(2026, 8, 19)), "Adjudicada")
+        self.assertEqual(normalizar_estado("Abierta", None, date(2026, 8, 19)), "Abierta (plazo sin confirmar)")
 
     def test_metricas_se_guardan_en_json_e_historico(self):
         with tempfile.TemporaryDirectory() as directory:
