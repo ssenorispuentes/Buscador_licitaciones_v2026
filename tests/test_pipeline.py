@@ -28,13 +28,13 @@ class PipelineTests(unittest.TestCase):
         from app import normalizar_importes
         values = pd.Series([
             2000, "2 K €", "2.000 €", "1,5 M €", "1.234,56 EUR",
-            "617.028,33 Euros", "617,028.33 USD",
+            "617.028,33 Euros", "617,028.33 USD", -1.0,
         ])
         self.assertEqual(
             normalizar_importes(values).tolist(),
             [
                 2000.0, 2000.0, 2000.0, 1_500_000.0, 1234.56,
-                617_028.33, 617_028.33,
+                617_028.33, 617_028.33, 0.0,
             ],
         )
 

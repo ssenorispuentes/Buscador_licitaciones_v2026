@@ -239,7 +239,7 @@ def normalizar_importes(series):
     """Convierte importes numéricos o formateados sin depender de la vista."""
     def parse(value):
         if isinstance(value, (int, float)) and not isinstance(value, bool):
-            return float(value) if not pd.isna(value) else 0.0
+            return max(float(value), 0.0) if not pd.isna(value) else 0.0
         text = unidecode(str(value or "")).upper().strip()
         if text in {"", "NAN", "NONE", "NOTFOUND", "NO DISPONIBLE", "-", "-1"}:
             return 0.0
@@ -696,12 +696,21 @@ def main():
     fecha_desde = st.sidebar.date_input("Fecha límite igual o posterior a", value=default_date)
     estimated = normalizar_importes(df.get("Valor estimado contrato (€)", pd.Series(0, index=df.index)))
     e_min, e_max = float(estimated.min()), float(estimated.max())
-    if e_max > e_min:
-        valor_estimado = st.sidebar.slider("Valor estimado del contrato (€)", min_value=e_min,
-            max_value=e_max, value=(e_min, e_max), step=max((e_max - e_min) / 200, 1.0), format="%.0f €")
+    st.sidebar.markdown("**Valor estimado del contrato (€)**")
+    estimated_cols = st.sidebar.columns(2)
+    estimated_min = estimated_cols[0].number_input(
+        "Estimación mín.", min_value=0.0, value=e_min, step=1000.0,
+        help="Introduce el importe mínimo completo, sin abreviaturas.",
+    )
+    estimated_max = estimated_cols[1].number_input(
+        "Estimación máx.", min_value=0.0, value=e_max, step=1000.0,
+        help="Introduce el importe máximo completo, sin abreviaturas.",
+    )
+    if estimated_min > estimated_max:
+        st.sidebar.warning("La estimación mínima no puede superar a la máxima.")
+        valor_estimado = (estimated_max, estimated_min)
     else:
-        st.sidebar.caption(f"Valor estimado único: {e_min:,.0f} €")
-        valor_estimado = (e_min, e_max)
+        valor_estimado = (estimated_min, estimated_max)
     tipos = st.sidebar.multiselect("Tipo de contrato",
         sorted(df.get("Tipo de contrato", pd.Series(dtype=str)).dropna().astype(str).unique()))
     fuentes = st.sidebar.multiselect("Fuente",
