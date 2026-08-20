@@ -11,9 +11,11 @@ from pathlib import Path
 import pandas as pd
 import requests
 import streamlit as st
+from bs4 import BeautifulSoup
 from unidecode import unidecode
 
 import src.functions as functions
+from src.document_keywords import download_document, find_document_links
 from src.gemini_processor import LicitacionGeminiProcessor, extraer_paginas_clave_pdf
 
 
@@ -114,32 +116,66 @@ def guardar_cache_analisis(row, data, cache_dir="./.gemini_cache/analisis"):
     return path
 
 
-def localizar_pdf(row, pdf_dir="./pdfs", cache_dir="./.gemini_cache/pdfs"):
-    """Localiza el pliego o descarga una URL PDF a la caché permanente."""
-    reference = _texto_valido(row.get("PDF / Ruta"))
-    if not reference:
+def descargar_pdf_desde_ficha(row, cache_dir="./.gemini_cache/pdfs", session=None):
+    """Recupera un PDF real desde la ficha oficial y lo deja en caché."""
+    official_url = _texto_valido(row.get("URL"))
+    if not official_url.lower().startswith(("http://", "https://")):
         return None
-    direct = Path(reference)
-    candidates = [direct, Path(pdf_dir) / direct.name]
-    for candidate in candidates:
-        if candidate.is_file():
-            return candidate
-    if reference.lower().startswith(("http://", "https://")):
-        target_dir = Path(cache_dir)
-        target_dir.mkdir(parents=True, exist_ok=True)
-        target = target_dir / f"{clave_expediente(row)}.pdf"
-        if target.exists():
-            return target
-        response = requests.get(reference, timeout=30)
-        response.raise_for_status()
-        content_type = response.headers.get("content-type", "").lower()
-        if not response.content.startswith(b"%PDF") and "pdf" not in content_type:
-            raise ValueError("El enlace asociado no devuelve un documento PDF.")
-        temporary = target.with_suffix(".tmp")
+    target_dir = Path(cache_dir)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    filename = f"{clave_expediente(row)}.pdf"
+    target = target_dir / filename
+    if target.is_file() and target.read_bytes()[:4] == b"%PDF":
+        return target
+
+    session = session or requests.Session()
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (compatible; BuscadorLicitaciones/2026)",
+        "Accept-Language": "es-ES,es;q=0.9",
+    })
+    response = session.get(official_url, timeout=30)
+    response.raise_for_status()
+    # Algunas fichas enlazan directamente al documento.
+    if response.content.startswith(b"%PDF"):
+        temporary = target.with_suffix(".part")
         temporary.write_bytes(response.content)
         os.replace(temporary, target)
         return target
-    return None
+
+    soup = BeautifulSoup(response.content, "html.parser")
+    candidates = find_document_links(soup, getattr(response, "url", official_url))
+    session.headers.update({"Referer": getattr(response, "url", official_url)})
+    errors = []
+    for candidate in candidates:
+        try:
+            download_document(session, candidate, target_dir, filename, timeout=30)
+            return target
+        except (OSError, requests.RequestException, ValueError) as exc:
+            errors.append(str(exc))
+    if candidates:
+        raise ValueError(
+            "La ficha contiene documentos, pero ninguno devolvió un PDF válido. "
+            + (errors[-1] if errors else "")
+        )
+    raise ValueError("No se encontró ningún enlace de pliego en la ficha oficial.")
+
+
+def localizar_pdf(row, pdf_dir="./pdfs", cache_dir="./.gemini_cache/pdfs", session=None):
+    """Localiza el pliego local o lo recupera bajo demanda desde su ficha."""
+    reference = _texto_valido(row.get("PDF / Ruta"))
+    if reference:
+        direct = Path(reference)
+        candidates = [direct, Path(pdf_dir) / direct.name, Path(cache_dir) / direct.name]
+        for candidate in candidates:
+            if candidate.is_file() and candidate.read_bytes()[:4] == b"%PDF":
+                return candidate
+        if reference.lower().startswith(("http://", "https://")):
+            direct_row = row.copy()
+            direct_row["URL"] = reference
+            return descargar_pdf_desde_ficha(direct_row, cache_dir, session)
+    # En Streamlit Cloud el CSV está versionado, pero pdfs/ no. Se reconstruye
+    # el documento desde la URL oficial solo al seleccionar la licitación.
+    return descargar_pdf_desde_ficha(row, cache_dir, session)
 
 
 def seleccionar_registros_preferentes(df, pdf_dir="./pdfs"):

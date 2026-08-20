@@ -17,12 +17,44 @@ from src.analytics import guardar_metricas
 from src.document_keywords import download_document, find_document_links, matches_document_text
 from app import (
     aplicar_filtros, cargar_cache_analisis, construir_dossier, construir_ficha_html,
+    descargar_pdf_desde_ficha,
     formatear_importe_compacto, guardar_cache_analisis, normalizar_estado,
     seleccionar_registros_preferentes,
 )
 
 
 class PipelineTests(unittest.TestCase):
+    def test_descarga_pdf_bajo_demanda_desde_ficha_oficial(self):
+        class Response:
+            def __init__(self, content, url):
+                self.content, self.url = content, url
+                self.headers = {}
+            def raise_for_status(self):
+                return None
+            def iter_content(self, _):
+                yield self.content
+        class Session:
+            def __init__(self):
+                self.headers = {}
+                self.calls = []
+            def get(self, url, **kwargs):
+                self.calls.append(url)
+                if len(self.calls) == 1:
+                    return Response(b"""
+                      <table id='myTablaDetallePliegosPlatAgreVISUOE'><tr><td>
+                        <a href='https://example.test/pliego.pdf'></a>
+                      </td></tr></table>
+                    """, url)
+                return Response(b"%PDF-1.7\ncontenido", url)
+        row = pd.Series({
+            "Nº Expediente": "172/2026", "Título": "Licencias",
+            "URL": "https://example.test/ficha", "PDF / Ruta": "pliego-local.pdf",
+        })
+        with tempfile.TemporaryDirectory() as directory:
+            path = descargar_pdf_desde_ficha(row, directory, Session())
+            self.assertTrue(path.is_file())
+            self.assertTrue(path.read_bytes().startswith(b"%PDF"))
+
     def test_tabla_alternativa_de_pliegos_detecta_enlaces_sin_texto(self):
         from bs4 import BeautifulSoup
         soup = BeautifulSoup("""
