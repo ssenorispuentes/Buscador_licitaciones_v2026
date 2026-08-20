@@ -236,8 +236,42 @@ def exportar_excel_enriquecido(df, cache_dir="./.gemini_cache/analisis"):
 
 
 def normalizar_importes(series):
-    # Los scrapers históricos usan -1 para indicar importe desconocido.
-    return pd.to_numeric(series, errors="coerce").fillna(0.0).clip(lower=0.0)
+    """Convierte importes numéricos o formateados sin depender de la vista."""
+    def parse(value):
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return float(value) if not pd.isna(value) else 0.0
+        text = unidecode(str(value or "")).upper().strip()
+        if text in {"", "NAN", "NONE", "NOTFOUND", "NO DISPONIBLE", "-", "-1"}:
+            return 0.0
+        multiplier = 1.0
+        compact = re.search(r"(?:^|\s)([KM])\s*(?:EUR|EURO|EUROS)?\s*$", text)
+        if compact:
+            multiplier = 1_000.0 if compact.group(1) == "K" else 1_000_000.0
+            text = text[:compact.start()].strip()
+        text = re.sub(r"[^0-9,.-]", "", text)
+        if not text:
+            return 0.0
+        if "," in text and "." in text:
+            decimal = "," if text.rfind(",") > text.rfind(".") else "."
+            thousands = "." if decimal == "," else ","
+            text = text.replace(thousands, "").replace(decimal, ".")
+        elif "," in text or "." in text:
+            separator = "," if "," in text else "."
+            parts = text.split(separator)
+            # Con K/M el separador siempre expresa decimales (1,5 M). Sin
+            # sufijo, grupos de tres se interpretan como miles (2.000 EUR).
+            if multiplier == 1.0 and len(parts) > 1 and all(
+                len(part) == 3 for part in parts[1:]
+            ):
+                text = "".join(parts)
+            else:
+                text = "".join(parts[:-1]) + "." + parts[-1]
+        try:
+            return max(float(text) * multiplier, 0.0)
+        except ValueError:
+            return 0.0
+
+    return series.map(parse).astype(float)
 
 
 def formatear_importe_compacto(value):
@@ -622,7 +656,7 @@ def main():
     monetary_columns = ("Importe (€)", "Importe con IVA (€)", "Valor estimado contrato (€)")
     for numeric in monetary_columns:
         if numeric in df:
-            df[numeric] = pd.to_numeric(df[numeric], errors="coerce")
+            df[numeric] = normalizar_importes(df[numeric])
     if "Estado" in df:
         deadlines = df.get("Fecha Límite Presentación", pd.Series(None, index=df.index))
         df["Estado"] = [

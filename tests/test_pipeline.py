@@ -24,6 +24,29 @@ from app import (
 
 
 class PipelineTests(unittest.TestCase):
+    def test_normalizacion_importes_admite_formatos_compactos_y_espanoles(self):
+        from app import normalizar_importes
+        values = pd.Series([
+            2000, "2 K €", "2.000 €", "1,5 M €", "1.234,56 EUR",
+            "617.028,33 Euros", "617,028.33 USD",
+        ])
+        self.assertEqual(
+            normalizar_importes(values).tolist(),
+            [
+                2000.0, 2000.0, 2000.0, 1_500_000.0, 1234.56,
+                617_028.33, 617_028.33,
+            ],
+        )
+
+    def test_filtro_importe_usa_valor_real_aunque_este_formateado(self):
+        source = pd.DataFrame([
+            {"Nº Expediente": "A", "Importe (€)": "2 K €"},
+            {"Nº Expediente": "B", "Importe (€)": "950 €"},
+            {"Nº Expediente": "C", "Importe (€)": "1,5 M €"},
+        ])
+        result = aplicar_filtros(source, importe_min=1500, importe_max=3000)
+        self.assertEqual(result["Nº Expediente"].tolist(), ["A"])
+
     def test_fallback_detecta_nuevas_expresiones_tecnologicas_con_acentos(self):
         cases = (
             "Digitalización de documentación clínica y archivo digital",
