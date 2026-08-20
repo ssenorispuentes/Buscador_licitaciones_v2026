@@ -8,6 +8,63 @@ from pathlib import Path
 
 import fitz
 from dotenv import load_dotenv
+from unidecode import unidecode
+
+
+PDF_KEYWORDS = (
+    "objeto del contrato", "prescripciones tecnicas", "especificaciones",
+    "solvencia tecnica", "solvencia economica", "criterios de adjudicacion",
+    "criterios de valoracion", "penalidades", "penalizaciones",
+    "plazo de garantia", "perfiles requeridos",
+)
+
+
+def extraer_paginas_clave_pdf(ruta_pdf, max_caracteres=30000):
+    """Devuelve las páginas más útiles del pliego, dentro de un límite estricto.
+
+    Se puntúan todas las páginas antes de elegirlas. Las que contienen términos
+    relevantes se conservan en orden documental; si no hay coincidencias se
+    usan las primeras páginas con contenido como degradación segura.
+    """
+    path = Path(ruta_pdf)
+    if not path.is_file():
+        raise FileNotFoundError(f"PDF no encontrado: {path}")
+    pages = []
+    with fitz.open(path) as document:
+        for number, page in enumerate(document, start=1):
+            text = re.sub(r"[ \t]+", " ", page.get_text("text") or "").strip()
+            if not text:
+                continue
+            normalized = unidecode(text).lower()
+            hits = sum(normalized.count(keyword) for keyword in PDF_KEYWORDS)
+            # Portadas e índices suelen tener poco texto o muchas referencias a páginas.
+            is_index = "indice" in normalized[:500] and hits < 2
+            is_short_cover = number == 1 and len(text) < 800 and hits == 0
+            pages.append((number, text, hits, is_index or is_short_cover))
+
+    useful_pages = {item[0]: item for item in pages if not item[3]}
+    relevant_numbers = {item[0] for item in pages if item[2] > 0 and not item[3]}
+    # El contexto de una sección suele comenzar o terminar en una página contigua.
+    preferred_numbers = set(relevant_numbers)
+    for number in relevant_numbers:
+        preferred_numbers.update((number - 1, number + 1))
+    selected_numbers = [number for number in sorted(preferred_numbers) if number in useful_pages]
+    # Completa el presupuesto con el resto del documento: una cuota de peticiones
+    # limitada no obliga a desperdiciar tokens dentro de cada petición autorizada.
+    selected_numbers.extend(
+        number for number in sorted(useful_pages) if number not in selected_numbers
+    )
+    selected = [useful_pages[number] for number in selected_numbers]
+    chunks, used = [], 0
+    for number, page_text, _, _ in selected:
+        header = f"\n\n--- Página {number} ---\n"
+        remaining = max_caracteres - used - len(header)
+        if remaining <= 0:
+            break
+        excerpt = page_text[:remaining]
+        chunks.append(header + excerpt)
+        used += len(header) + len(excerpt)
+    return "".join(chunks).strip()[:max_caracteres]
 
 
 class LicitacionGeminiProcessor:
@@ -18,7 +75,7 @@ class LicitacionGeminiProcessor:
     el pipeline mediante un fallback determinista basado en palabras clave.
     """
 
-    def __init__(self, df, config_file="./config/scraper_config.ini"):
+    def __init__(self, df, config_file="./config/scraper_config.ini", usar_gemini=True):
         self.df = df.copy()
         self.config = configparser.ConfigParser()
         self.config.optionxform = str
@@ -45,7 +102,8 @@ class LicitacionGeminiProcessor:
         self.categories = self._load_categories()
         self.tech_keywords = self._load_keywords("palabras_clave_tecnologia")
         self.non_tech_keywords = self._load_keywords("palabras_descarte_tecnologia")
-        self.client = self._create_client()
+        self.usar_gemini = usar_gemini
+        self.client = self._create_client() if usar_gemini else None
         self.stats = {
             "gemini_requeridas": 0,
             "gemini_analizadas": 0,
@@ -138,16 +196,7 @@ class LicitacionGeminiProcessor:
             print(f"⚠️ PDF no encontrado para análisis: {path}")
             return ""
         try:
-            with fitz.open(path) as document:
-                chunks = []
-                total = 0
-                for page in document:
-                    text = page.get_text()
-                    chunks.append(text)
-                    total += len(text)
-                    if total >= self.max_pdf_chars:
-                        break
-            return "".join(chunks)[: self.max_pdf_chars]
+            return extraer_paginas_clave_pdf(path, self.max_pdf_chars)
         except Exception as exc:
             print(f"⚠️ No se pudo leer {path}: {exc}")
             return ""
@@ -312,12 +361,16 @@ EXTRACTO DEL PLIEGO:
     def procesar_completo(self):
         summaries = []
         categories = []
-        print(f"🤖 Clasificando {len(self.df)} licitaciones con {self.model}...")
+        mode = self.model if self.usar_gemini else "reglas locales (0 llamadas API)"
+        print(f"🤖 Clasificando {len(self.df)} licitaciones con {mode}...")
         for position, (_, row) in enumerate(self.df.iterrows(), start=1):
             self.stats["gemini_requeridas"] += 1
             web_text = self._web_text(row)
             fallback = self._fallback(web_text)
-            web_response = self._request(self._web_prompt(web_text), "web")
+            web_response = (
+                self._request(self._web_prompt(web_text), "web")
+                if self.usar_gemini else None
+            )
             if isinstance(web_response, dict):
                 self.stats["gemini_analizadas"] += 1
             result = self._normalize_result(web_response, fallback)
@@ -340,3 +393,28 @@ EXTRACTO DEL PLIEGO:
         self.df["resumen_breve"] = summaries
         self.df["clasificacion"] = categories
         return self.df
+
+    def consultar_pliego(self, contexto, instruccion):
+        """Hace una única consulta libre para la UI; la caché la gestiona la app."""
+        if self.client is None:
+            raise RuntimeError(
+                "Gemini no está disponible. Configura GEMINI_API_KEY para usar el análisis."
+            )
+        prompt = f"""Eres especialista en contratación pública española. Responde en
+Markdown claro, sin inventar datos. Si el pliego no contiene una respuesta,
+indícalo expresamente.\n\nTAREA:\n{instruccion}\n\nCONTEXTO DEL PLIEGO:\n{contexto}"""
+        try:
+            self.stats["gemini_api_solicitudes"] += 1
+            response = self.client.models.generate_content(
+                model=self.model,
+                contents=prompt,
+            )
+            return (response.text or "").strip()
+        except Exception as exc:
+            if "429" in str(exc) or "RESOURCE_EXHAUSTED" in str(exc):
+                self._quota_exhausted = True
+                raise RuntimeError(
+                    "Se ha alcanzado la cuota diaria de Gemini. Los análisis guardados "
+                    "siguen disponibles; inténtalo de nuevo cuando se renueve la cuota."
+                ) from exc
+            raise RuntimeError(f"No se pudo completar el análisis con Gemini: {exc}") from exc

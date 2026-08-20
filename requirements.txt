@@ -1,4 +1,9 @@
 pandas==2.3.0
-streamlit==1.61.1
+streamlit==1.50.0
 unidecode==1.4.0
 Jinja2>=3.1.2,<4
+google-genai==1.47.0
+openpyxl>=3.1,<4
+PyMuPDF==1.26.1
+python-dotenv==1.0.0
+requests==2.32.4

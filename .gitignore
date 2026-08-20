@@ -16,4 +16,6 @@ __pycache__/
 /logs
 /analytics/
 /.gemini_cache/
+# Prompts de trabajo usados para definir cambios; no son necesarios en ejecución.
+/prompts/
 .~lock.*#

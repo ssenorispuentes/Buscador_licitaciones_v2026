@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 import time
 import sys
 
-def main(fecha_proceso = None, usar_scraping = True):
+def main(fecha_proceso=None, usar_scraping=True, usar_gemini_batch=False):
     # 🕒 Inicio de ejecución y redirección de salida
     start_time = time.time()
     started_at = datetime.now().astimezone()
@@ -175,10 +175,12 @@ def main(fecha_proceso = None, usar_scraping = True):
         )
         pdf_descargados = contar_pdfs(df_unificado, output_dir_pdf)
 
-        # Clasificar primero con texto web; Gemini solo lee el PDF cuando hace falta.
-        print("🟢 Clasificación y resumen con Gemini...")
+        # La ejecución masiva es local salvo consentimiento explícito por CLI.
+        print("🟢 Clasificación local..." if not usar_gemini_batch
+              else "🟢 Clasificación batch con Gemini...")
         processor = LicitacionGeminiProcessor(
-            df_unificado, config_file="./config/scraper_config.ini"
+            df_unificado, config_file="./config/scraper_config.ini",
+            usar_gemini=usar_gemini_batch,
         )
         df_final = processor.procesar_completo()
         # Se conserva fecha y hora (con zona) para mostrarla permanentemente en la app.
@@ -224,11 +226,17 @@ if __name__ == "__main__":
         action="store_true",
         help="Ejecutar scraping en lugar de leer archivos existentes"
     )
+    parser.add_argument(
+        "--usar_gemini_batch",
+        action="store_true",
+        help="Clasificar el lote con Gemini (por defecto se usan reglas locales y 0 API)",
+    )
 
     args = parser.parse_args()
 
     main(fecha_proceso=args.fecha_proceso,
-         usar_scraping=args.usar_scraping)
+         usar_scraping=args.usar_scraping,
+         usar_gemini_batch=args.usar_gemini_batch)
 
 #python main_scraping.py                  No hace scraping, lee ficheros con fecha más actualizada
 #python main_scraping.py 2024-06-01       No hace scraping, lee ficheros con fecha la que se le pasa

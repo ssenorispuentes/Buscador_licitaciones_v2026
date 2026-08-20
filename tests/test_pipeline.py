@@ -12,13 +12,100 @@ from src.functions import (
     normalizar_columnas_multilingues,
     parsear_fechas_inteligente,
 )
-from src.gemini_processor import LicitacionGeminiProcessor
+from src.gemini_processor import LicitacionGeminiProcessor, extraer_paginas_clave_pdf
 from src.analytics import guardar_metricas
 from src.document_keywords import matches_document_text
-from app import aplicar_filtros, formatear_importe_compacto, normalizar_estado
+from app import (
+    aplicar_filtros, cargar_cache_analisis, construir_dossier, construir_ficha_html,
+    formatear_importe_compacto, guardar_cache_analisis, normalizar_estado,
+    seleccionar_registros_preferentes,
+)
 
 
 class PipelineTests(unittest.TestCase):
+    def test_ficha_muestra_expediente_completo_sin_ellipsis(self):
+        expediente = "EXPEDIENTE-MUY-LARGO-2026/000000000123456789"
+        card = construir_ficha_html(pd.Series({
+            "Nº Expediente": expediente, "Título": "Servicio tecnológico",
+            "Estado": "En plazo", "Fecha Límite Presentación": "2026-09-30",
+        }))
+        self.assertIn(expediente, card)
+        self.assertNotIn("text-overflow", card)
+        self.assertNotIn("white-space:nowrap", card.replace(" ", ""))
+
+    def test_selector_prefiere_duplicado_con_pdf_local(self):
+        with tempfile.TemporaryDirectory() as directory:
+            pdf_name = "pliego.pdf"
+            with open(os.path.join(directory, pdf_name), "wb") as document:
+                document.write(b"%PDF-1.4\n")
+            source = pd.DataFrame([
+                {"Nº Expediente": "EXP-1", "Fuente": "Andalucía", "PDF / Ruta": pdf_name},
+                {"Nº Expediente": "EXP-1", "Fuente": "España", "PDF / Ruta": "No disponible"},
+            ])
+            selected = seleccionar_registros_preferentes(source, directory)
+            self.assertEqual(len(selected), 1)
+            self.assertEqual(next(iter(selected.values()))["Fuente"], "Andalucía")
+
+    def test_clasificacion_local_no_inicializa_ni_invoca_gemini(self):
+        source = pd.DataFrame([{"titulo": "Desarrollo de software de gestión"}])
+        processor = LicitacionGeminiProcessor(source, usar_gemini=False)
+        result = processor.procesar_completo()
+        self.assertEqual(result.loc[0, "clasificacion"], "Software y desarrollo")
+        self.assertEqual(processor.stats["gemini_api_solicitudes"], 0)
+        self.assertFalse(processor.stats["gemini_api_disponible"])
+
+    def test_smart_chunking_prioriza_paginas_clave_y_limita_tamano(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "pliego.pdf")
+            import fitz
+            document = fitz.open()
+            document.new_page().insert_text((72, 72), "PORTADA DEL EXPEDIENTE")
+            document.new_page().insert_text(
+                (72, 72), "Solvencia tecnica: se requieren proyectos similares."
+            )
+            document.new_page().insert_text((72, 72), "Anexo administrativo repetitivo")
+            document.save(path)
+            document.close()
+            result = extraer_paginas_clave_pdf(path, max_caracteres=120)
+            self.assertIn("Solvencia tecnica", result)
+            self.assertNotIn("PORTADA", result)
+            self.assertLessEqual(len(result), 120)
+
+    def test_smart_chunking_incluye_paginas_vecinas_y_completa_contexto(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "pliego_amplio.pdf")
+            import fitz
+            document = fitz.open()
+            for text in (
+                "Introducción general del servicio y antecedentes.",
+                "Detalle previo necesario para entender la sección.",
+                "Criterios de adjudicacion y valoración de ofertas.",
+                "Continuación de las reglas y condiciones aplicables.",
+                "Contenido adicional sobre ejecución y entregables.",
+            ):
+                document.new_page().insert_text((72, 72), text)
+            document.save(path)
+            document.close()
+            result = extraer_paginas_clave_pdf(path, max_caracteres=2000)
+            self.assertIn("Detalle previo", result)
+            self.assertIn("Criterios de adjudicacion", result)
+            self.assertIn("Continuación", result)
+            self.assertIn("Contenido adicional", result)
+
+    def test_cache_por_expediente_y_dossier_incluyen_chat(self):
+        row = pd.Series({"Nº Expediente": "EXP/1", "Título": "Plataforma"})
+        data = {
+            "analisis": {"resumen": "Resumen guardado"},
+            "chat": [{"pregunta": "¿Plazo?", "respuesta": "Doce meses"}],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            guardar_cache_analisis(row, data, directory)
+            self.assertEqual(cargar_cache_analisis(row, directory), data)
+        dossier = construir_dossier(row, data)
+        self.assertIn("Resumen guardado", dossier)
+        self.assertIn("¿Plazo?", dossier)
+        self.assertIn("Doce meses", dossier)
+
     def test_esquema_final_tiene_exactamente_20_columnas(self):
         source = pd.DataFrame(
             [{
