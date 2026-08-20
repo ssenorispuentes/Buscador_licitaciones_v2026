@@ -19,4 +19,6 @@ __pycache__/
 /documentos_invalidos/
 # Prompts de trabajo usados para definir cambios; no son necesarios en ejecución.
 /prompts/
+# Documentación informativa local; no se publica en GitHub.
+/info/
 .~lock.*#
