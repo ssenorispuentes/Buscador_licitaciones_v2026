@@ -87,6 +87,7 @@ class ScraperAndalucia:
         import unicodedata
         import os
         import requests
+        from src.document_keywords import download_document
 
         def normalizar(texto):
             texto = texto.lower()
@@ -94,18 +95,13 @@ class ScraperAndalucia:
             return ''.join(c for c in texto if unicodedata.category(c) != 'Mn')
 
         def descargar_pdf(url_pdf, nombre_archivo):
-            os.makedirs(self.OUTPUT_DIR_PDF, exist_ok=True)
-            ruta_local = os.path.join(self.OUTPUT_DIR_PDF, nombre_archivo)
             try:
-                r = requests.get(url_pdf, stream=True)
-                if r.status_code == 200:
-                    with open(ruta_local, "wb") as f:
-                        for chunk in r.iter_content(1024):
-                            f.write(chunk)
-                    print(f"✅ PDF descargado: {ruta_local}")
-                    return nombre_archivo
-                else:
-                    print(f"❌ Error al descargar: {url_pdf}")
+                saved = download_document(
+                    requests.Session(), url_pdf, self.OUTPUT_DIR_PDF,
+                    nombre_archivo, self.TIMEOUT,
+                )
+                print(f"✅ PDF descargado: {os.path.join(self.OUTPUT_DIR_PDF, saved)}")
+                return saved
             except Exception as e:
                 print(f"⚠️ Excepción al descargar {url_pdf}: {e}")
             return None
@@ -299,6 +295,8 @@ class ScraperAndalucia:
         # Limpieza de nombres de columnas
         nuevas_columnas = [self.limpiar_nombre_columna(col) for col in df.columns]
         df.columns = nuevas_columnas
+        if 'pdf_prescripciones_tecnicas' not in df.columns:
+            df['pdf_prescripciones_tecnicas'] = None
         nulos = df['pdf_prescripciones_tecnicas'].isna().sum()
         # Cantidad de no nulos (con valor)
         no_nulos = df['pdf_prescripciones_tecnicas'].notna().sum()

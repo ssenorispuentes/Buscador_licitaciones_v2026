@@ -14,7 +14,7 @@ from src.functions import (
 )
 from src.gemini_processor import LicitacionGeminiProcessor, extraer_paginas_clave_pdf
 from src.analytics import guardar_metricas
-from src.document_keywords import matches_document_text
+from src.document_keywords import download_document, find_document_links, matches_document_text
 from app import (
     aplicar_filtros, cargar_cache_analisis, construir_dossier, construir_ficha_html,
     formatear_importe_compacto, guardar_cache_analisis, normalizar_estado,
@@ -23,6 +23,52 @@ from app import (
 
 
 class PipelineTests(unittest.TestCase):
+    def test_tabla_alternativa_de_pliegos_detecta_enlaces_sin_texto(self):
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup("""
+            <table id="myTablaDetallePliegosPlatAgreVISUOE"><tr><td>
+              <a title="Este documento se abrirá en una nueva ventana"
+                 href="https://example.test/documento/123"></a>
+            </td></tr></table>
+        """, "html.parser")
+        self.assertEqual(
+            find_document_links(soup, "https://example.test/ficha"),
+            ["https://example.test/documento/123"],
+        )
+
+    def test_descarga_documental_rechaza_html_y_no_crea_pdf(self):
+        class Response:
+            headers = {"Content-Type": "text/html"}
+            def raise_for_status(self):
+                return None
+            def iter_content(self, _):
+                yield b"<html><body>No es un PDF</body></html>"
+        class Session:
+            def get(self, *args, **kwargs):
+                return Response()
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(ValueError, "no devolvió un PDF real"):
+                download_document(Session(), "https://example.test", directory, "falso.pdf")
+            self.assertFalse(os.path.exists(os.path.join(directory, "falso.pdf")))
+
+    def test_descarga_documental_acepta_firma_pdf_sin_content_type(self):
+        class Response:
+            headers = {}
+            def raise_for_status(self):
+                return None
+            def iter_content(self, _):
+                yield b"%PDF-1.7\ncontenido"
+        class Session:
+            def get(self, *args, **kwargs):
+                return Response()
+        with tempfile.TemporaryDirectory() as directory:
+            result = download_document(
+                Session(), "https://example.test", directory, "valido.pdf"
+            )
+            self.assertEqual(result, "valido.pdf")
+            with open(os.path.join(directory, result), "rb") as document:
+                self.assertTrue(document.read().startswith(b"%PDF"))
+
     def test_ficha_muestra_expediente_completo_sin_ellipsis(self):
         expediente = "EXPEDIENTE-MUY-LARGO-2026/000000000123456789"
         card = construir_ficha_html(pd.Series({

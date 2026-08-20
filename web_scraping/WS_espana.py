@@ -17,7 +17,7 @@ from datetime import datetime
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from src.document_keywords import matches_document_text
+from src.document_keywords import download_document, find_document_links
 
 class ScraperEspana:
     def __init__(self, fecha, config_file="./config/scraper_config.ini", fecha_minima=None):
@@ -166,69 +166,42 @@ class ScraperEspana:
                 if value and key not in detalle:
                     detalle[key] = value
 
-            # 👉 Buscar fila con 'pliego' en tabla de documentos
-            fila_pliego = None
+            # Las fichas propias y las agregadas usan tablas distintas. Se
+            # inspecciona semánticamente todo el HTML y se prueban candidatos
+            # hasta obtener bytes PDF reales.
             try:
-                tabla = wait.until(EC.presence_of_element_located((By.ID, "myTablaDetalleVISUOE")))
-                filas = tabla.find_elements(By.XPATH, ".//tr[contains(@class, 'rowClass')]")
-                print(f"📊 Filas en tabla de documentos: {len(filas)}")
-                for idx, fila in enumerate(filas):
-                    texto = fila.text.lower()
-                    print(f"🧾 Fila {idx}: {texto}")
-                    enlaces_fila = fila.find_elements(By.TAG_NAME, "a")
-                    hrefs = " ".join(link.get_attribute("href") or "" for link in enlaces_fila)
-                    if matches_document_text(f"{texto} {hrefs}"):
-                        fila_pliego = fila
-                        break
-            except Exception as e:
-                print(f"❌ Error localizando la tabla de documentos: {e}")
-
-            if fila_pliego:
-                print("📥 Encontrado PDF en la primera tabla, descargando...")
+                wait.until(lambda driver: driver.find_elements(
+                    By.XPATH,
+                    "//table[@id='myTablaDetalleVISUOE' or "
+                    "contains(@id, 'TablaDetallePliegos')]",
+                ))
+            except TimeoutException:
+                print("⚠️ La ficha no mostró una tabla documental reconocida.")
+            soup = BeautifulSoup(self.driver.page_source, "html.parser")
+            document_urls = find_document_links(soup, self.driver.current_url)
+            print(f"📊 Candidatos documentales encontrados: {len(document_urls)}")
+            session = requests.Session()
+            session.headers.update({
+                "User-Agent": self.driver.execute_script("return navigator.userAgent;"),
+                "Referer": self.driver.current_url,
+                "Accept": "application/pdf,application/octet-stream;q=0.9,*/*;q=0.5",
+            })
+            for cookie in self.driver.get_cookies():
+                session.cookies.set(cookie["name"], cookie["value"], domain=cookie.get("domain"))
+            nombre_pdf = f"esp_{identificador}_pliego_tecnico.pdf"
+            for document_url in document_urls:
                 try:
-                    enlace_pdf = fila_pliego.find_element(By.TAG_NAME, "a")
-                    href = enlace_pdf.get_attribute("href")
-                    if href:
-                        nombre_pdf = f"esp_{identificador}_pliego_tecnico.pdf"
-                        ruta = os.path.join(self.OUTPUT_DIR_PDF, nombre_pdf)
-                        r = requests.get(href, stream=True, timeout=self.TIMEOUT)
-                        if r.status_code == 200:
-                            with open(ruta, 'wb') as f:
-                                for chunk in r.iter_content(1024):
-                                    f.write(chunk)
-                            print(f"✅ PDF guardado en: {ruta}")
-                            detalle["PDF Pliego Prescripciones Técnicas"] = nombre_pdf
-                        else:
-                            print(f"❌ Error HTTP al descargar PDF: {r.status_code}")
-                    else:
-                        print("❌ Enlace al PDF no tiene href")
-                except Exception as e:
-                    print(f"⚠️ Error al descargar PDF de la primera tabla: {e}")
-            else:
-                print("❌ No se encontró un documento reconocido en la primera tabla, buscando en la segunda...")
-
-                try:
-                    WebDriverWait(self.driver, 7).until(
-                        EC.presence_of_element_located((By.CSS_SELECTOR, "a.TextAlignCenter.celdaTam2"))
+                    saved = download_document(
+                        session, document_url, self.OUTPUT_DIR_PDF,
+                        nombre_pdf, self.TIMEOUT,
                     )
-                    enlace_pdf = self.driver.find_element(By.CSS_SELECTOR, "a.TextAlignCenter.celdaTam2")
-                    pdf_url = enlace_pdf.get_attribute("href")
-                    if pdf_url:
-                        print(f"📥 Encontrado PDF en la segunda tabla: {pdf_url}")
-                        response = requests.get(pdf_url, timeout=self.TIMEOUT)
-                        if response.status_code == 200:
-                            nombre_pdf = f"esp_{identificador}_pliego_tecnico.pdf"
-                            ruta = os.path.join(self.OUTPUT_DIR_PDF, nombre_pdf)
-                            with open(ruta, 'wb') as f:
-                                f.write(response.content)
-                            print(f"✅ PDF descargado: {ruta}")
-                            detalle["PDF Pliego Prescripciones Técnicas"] = nombre_pdf
-                        else:
-                            print(f"❌ Error HTTP al descargar PDF: {response.status_code}")
-                    else:
-                        print("❌ No se encontró href válido en segunda tabla")
-                except Exception as e:
-                    print(f"❌ Error en la segunda tabla: {e}")
+                    detalle["PDF Pliego Prescripciones Técnicas"] = saved
+                    print(f"✅ PDF real descargado: {os.path.join(self.OUTPUT_DIR_PDF, saved)}")
+                    break
+                except Exception as exc:
+                    print(f"⚠️ Candidato descartado ({document_url}): {exc}")
+            if "PDF Pliego Prescripciones Técnicas" not in detalle:
+                print("❌ La ficha no contiene un enlace que devuelva un PDF real.")
 
             # ✅ Cierre seguro de pestaña
             try:
