@@ -293,13 +293,26 @@ EXTRACTO DEL PLIEGO:
 """.strip()
 
     def _fallback(self, web_text):
-        normalized = web_text.lower()
+        # Configuración y portales mezclan formas acentuadas/no acentuadas.
+        normalized = unidecode(web_text).lower()
         contains = lambda phrase: re.search(
             rf"(?<!\w){re.escape(phrase)}(?!\w)", normalized
         )
         tech_hits = [word for word in self.tech_keywords if contains(word)]
         non_tech_hits = [word for word in self.non_tech_keywords if contains(word)]
-        is_tech = bool(tech_hits) and not non_tech_hits
+        cpv_match = re.search(r"^codigo cpv:\s*([^\n]+)", normalized, re.MULTILINE)
+        cpv_codes = re.findall(r"\b\d{8}\b", cpv_match.group(1)) if cpv_match else []
+        # La división CPV 72 corresponde a servicios TI: consultoría, desarrollo,
+        # datos, soporte y servicios de Internet.
+        cpv_technology = any(code.startswith("72") for code in cpv_codes)
+        # "Infraestructura" es descarte para obra civil, pero no debe anular la
+        # expresión inequívoca "infraestructura tecnológica".
+        if "infraestructura tecnologica" in tech_hits:
+            non_tech_hits = [word for word in non_tech_hits if word != "infraestructura"]
+        # "Tecnología" aislada también aparece en medicina, construcción o
+        # ingeniería; requiere otra señal TIC o un CPV 72 para evitar falsos positivos.
+        decisive_tech_hits = [word for word in tech_hits if word != "tecnologia"]
+        is_tech = bool(decisive_tech_hits or cpv_technology) and not non_tech_hits
         if is_tech:
             category = "Otra tecnológica"
             category_rules = [
@@ -308,13 +321,17 @@ EXTRACTO DEL PLIEGO:
                 ({"cloud", "nube", "servidores", "virtualizacion", "hosting", "bases de datos", "infraestructura tecnologica"}, "Infraestructura, cloud y sistemas"),
                 ({"redes"}, "Telecomunicaciones y redes"),
                 ({"mantenimiento informatico"}, "Servicios y mantenimiento TI"),
-                ({"software", "erp", "crm", "automatizacion", "robotizacion", "rpa", "bots"}, "Software y desarrollo"),
+                ({"proyectos tic", "asistencia tecnica tic", "digitalizacion", "archivo digital", "almacenamiento digital"}, "Servicios y mantenimiento TI"),
+                ({"puestos de trabajo digitales"}, "Hardware y equipamiento tecnológico"),
+                ({"software", "erp", "crm", "licencias de microsoft", "microsoft 365", "automatizacion", "robotizacion", "rpa", "bots"}, "Software y desarrollo"),
             ]
             available = set(self.categories)
             for keywords, candidate in category_rules:
                 if candidate in available and keywords.intersection(tech_hits):
                     category = candidate
                     break
+            if cpv_technology and not tech_hits:
+                category = "Servicios y mantenimiento TI"
         else:
             category = "No tecnológica"
         description_match = re.search(

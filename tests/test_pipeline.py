@@ -24,6 +24,43 @@ from app import (
 
 
 class PipelineTests(unittest.TestCase):
+    def test_fallback_detecta_nuevas_expresiones_tecnologicas_con_acentos(self):
+        cases = (
+            "Digitalización de documentación clínica y archivo digital",
+            "Asistencia técnica TIC para la puesta en marcha de proyectos TIC",
+            "Renovación de puestos de trabajo digitales",
+            "Ampliación de infraestructura tecnológica corporativa",
+        )
+        for title in cases:
+            processor = LicitacionGeminiProcessor(
+                pd.DataFrame([{"titulo": title}]), usar_gemini=False
+            )
+            result = processor.procesar_completo()
+            self.assertNotEqual(result.loc[0, "clasificacion"], "No tecnológica", title)
+
+    def test_fallback_detecta_servicios_por_cpv_division_72(self):
+        processor = LicitacionGeminiProcessor(pd.DataFrame([{
+            "titulo": "Asistencia para la modernización municipal",
+            "codigo_cpv": "72200000",
+        }]), usar_gemini=False)
+        result = processor.procesar_completo()
+        self.assertEqual(
+            result.loc[0, "clasificacion"], "Servicios y mantenimiento TI"
+        )
+
+    def test_fallback_detecta_licencias_microsoft_y_no_tecnologia_accesoria(self):
+        source = pd.DataFrame([
+            {"titulo": "Suministro y actualización de licencias de Microsoft",
+             "codigo_cpv": "48218000"},
+            {"titulo": "Mantenimiento de robot quirúrgico de alta tecnología",
+             "codigo_cpv": "50420000"},
+        ])
+        result = LicitacionGeminiProcessor(
+            source, usar_gemini=False
+        ).procesar_completo()
+        self.assertEqual(result.loc[0, "clasificacion"], "Software y desarrollo")
+        self.assertEqual(result.loc[1, "clasificacion"], "No tecnológica")
+
     def test_descarga_pdf_bajo_demanda_desde_ficha_oficial(self):
         class Response:
             def __init__(self, content, url):
